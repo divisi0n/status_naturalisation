@@ -1,7 +1,10 @@
 <h1>Installation </h1>
 
-Vidéo tutorielle sur YouTube (je ne suis pas le propriétaire de la chaîne) : <a href="https://www.youtube.com/watch?v=WhW91uf_bVI">https://www.youtube.com/watch?v=WhW91uf_bVI</a>
+Vidéo tutorielle sur YouTube (je ne suis pas le propriétaire des chaînes) : 
 
+FR : <a href="https://www.youtube.com/watch?v=WhW91uf_bVI">https://www.youtube.com/watch?v=WhW91uf_bVI</a>
+
+AR : <a href="https://www.youtube.com/watch?v=vaitOnjyNFQ">https://www.youtube.com/watch?v=vaitOnjyNFQ</a>
 
 1. Télécharger le <a href="https://github.com/divisi0n/status_naturalisation/releases"> fichier ZIP </a> , décompress le zip pour obtenir le dossier
 
