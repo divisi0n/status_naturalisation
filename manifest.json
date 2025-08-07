@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Statut API du Dossier Naturalisation",
-  "version": "2.3",
+  "version": "2.4",
   "description": "Statut API du Dossier Naturalisation",
   "permissions": [
     "scripting",

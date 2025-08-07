@@ -10,7 +10,7 @@
   };
 
   // Extension version from manifest.json
-  const extensionVersion = "2.3";
+  const extensionVersion = "2.4";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -168,8 +168,8 @@
         // 6 Controle
         controle_a_affecter: "SDANF : Dossier transmis, attente d'affectation",
         controle_a_effectuer: "SDANF : Contrôle état civil à effectuer",
-        controle_en_attente_pec: "SCEC : Attente de pièce d'état civil",
-        controle_pec_a_faire: "SCEC : Pièce d'état civil en cours",
+        controle_en_attente_pec: "SCEC : Attente validation pièce d'état civil",
+        controle_pec_a_faire: "SCEC : Validation en cours pièce d'état civil",
         controle_transmise_pour_decret:
           "SDANF : Décret transmis pour approbation",
         controle_en_attente_retour_hierarchique:
@@ -328,7 +328,7 @@
 
     newElement.innerHTML = `
       <div ${dynamicClass} class="itemFriseContent" style="position: relative;">
-        <span ${dynamicClass} style="position: absolute; top: 1px; right: 3px; font-size: 8px; color: #aaa; opacity: 0.5;">${versionText}</span>
+        <span ${dynamicClass} style="position: absolute; top: 1px; right: 3px; font-size: 8px; color: #aaa; opacity: 0.8;">${versionText}</span>
         <span ${dynamicClass} class="itemFriseIcon">
           <span ${dynamicClass} aria-hidden="true" class="fa fa-hourglass-start" style="color:  #bf2626!important;"></span>
         </span>
