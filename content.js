@@ -98,34 +98,70 @@
     // Récupérer l'ID du dossier
     const idDossier = dossierData.dossier.id;
 
-    // Appeler le nouvel endpoint pour obtenir les détails du dossier
+    // Récupérer les données dossier (date d'entretien + décret) depuis l'API dossier
+    let assimilationDate = null;
     let decretId = null;
+    let recepisseCreated = null;
     try {
       const dossierResponse = await fetch(
         CONFIG.API_DOSSIER_ENDPOINT + idDossier
       );
       if (dossierResponse.ok) {
-        const dossierDetails = await dossierResponse.json();
-
-        // Vérifier si etat_civil.identites_decrets[].decret.id existe et n'est pas vide
-        if (dossierDetails?.etat_civil?.identites_decrets?.length > 0) {
-          for (const identite of dossierDetails.etat_civil.identites_decrets) {
+        const raw = await dossierResponse.json();
+        const dossierDetails = raw?.data ?? raw;
+        // entretien d'assimilation
+        assimilationDate =
+          dossierDetails?.entretien_assimilation?.date_rdv || null;
+        // décret id (prendre le premier trouvé)
+        const idents = dossierDetails?.etat_civil?.identites_decrets;
+        if (Array.isArray(idents) && idents.length > 0) {
+          for (const identite of idents) {
             if (identite?.decret?.id) {
               decretId = identite.decret.id;
-              break; // Prendre le premier décret trouvé
+              break;
             }
           }
         }
       }
-      if (!decretId) {
-        console.log(
-          "Extension API Naturalisation  : Aucun numéro de décret trouvé pour ce dossier"
-        );
-      }
-    } catch (error) {
+    } catch (e) {
       console.log(
-        "Erreur lors de la récupération des détails du dossier:",
-        error
+        "Erreur lors de la récupération de l'entretien d'assimilation:",
+        e
+      );
+    }
+
+    if (!decretId) {
+      console.log(
+        "Extension API Naturalisation  : Aucun numéro de décret trouvé pour ce dossier"
+      );
+    }
+
+    // Fin récupération dossier (une seule requête)
+
+    // Récupérer les notifications et extraire la date de réception du récépissé de complétude
+    try {
+      const notifRes = await fetch(
+        "https://administration-etrangers-en-france.interieur.gouv.fr/api/notifications"
+      );
+      if (notifRes.ok) {
+        const notifJson = await notifRes.json();
+        const items = Array.isArray(notifJson?._items) ? notifJson._items : [];
+        const matches = items.filter(
+          (it) =>
+            String(it?.id_demande) === String(idDossier) &&
+            it?.type_notification === "NATIONALITE" &&
+            it?.motif_notification === "RECEPISSE_COMPLETUDE_ENVOYE"
+        );
+        if (matches.length) {
+          recepisseCreated = matches.sort(
+            (a, b) => new Date(b._created) - new Date(a._created)
+          )[0]?._created;
+        }
+      }
+    } catch (e) {
+      console.log(
+        "Extension API Naturalisation  : Erreur lors de la récupération des notifications:",
+        e
       );
     }
 
@@ -296,6 +332,19 @@
       return `il y a ${months} mois`;
     }
 
+    // Formatter la date au format DD/MM/YY HH24hMI
+    function formatDate(dateString) {
+      if (!dateString) return "";
+      const d = new Date(dateString);
+      if (isNaN(d)) return "";
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yyyy = String(d.getFullYear());
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mi = String(d.getMinutes()).padStart(2, "0");
+      return `${dd}/${mm}/${yyyy} ${hh}h${mi}`;
+    }
+
     // Attendre l'élément actif au lieu de lancer une erreur s'il n'est pas trouvé
     const activeStep = await waitForActiveStep();
 
@@ -303,6 +352,80 @@
     const dynamicClass = activeStep
       .getAttributeNames()
       .find((name) => name.startsWith("_ngcontent-"));
+
+    // Ajouter la date d'entretien d'assimilation au libellé s'il existe
+    async function addAssimilationDateIfPresent() {
+      if (!assimilationDate) return;
+      const maxTries = 20;
+      for (let i = 0; i < maxTries; i++) {
+        const pEl = Array.from(document.querySelectorAll("p")).find(
+          (el) =>
+            el.textContent &&
+            el.textContent.trim().toLowerCase() === "entretien d'assimilation"
+        );
+        if (pEl) {
+          if (!pEl.querySelector(".anf-assim-date")) {
+            const span = document.createElement("span");
+            if (dynamicClass) span.setAttribute(dynamicClass, "");
+            span.className = "anf-assim-date";
+            span.style.marginLeft = "6px";
+            span.style.fontSize = "12px";
+            span.style.color = "#bf2626";
+            span.innerHTML = `<b>(${formatDate(assimilationDate)})</b>`;
+            pEl.appendChild(span);
+          }
+          break;
+        }
+        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+      }
+    }
+
+    // Ajouter la date de réception du récépissé de complétude au libellé s'il existe
+    async function addRecepisseCompletuDateIfPresent() {
+      if (!recepisseCreated) return;
+      const maxTries = 20;
+      for (let i = 0; i < maxTries; i++) {
+        const pEl = Array.from(document.querySelectorAll("p")).find(
+          (el) =>
+            el.textContent &&
+            el.textContent.trim().toLowerCase() ===
+              "réception du récépissé de complétude"
+        );
+        if (pEl) {
+          if (!pEl.querySelector(".anf-recepisse-date")) {
+            const span = document.createElement("span");
+            if (dynamicClass) span.setAttribute(dynamicClass, "");
+            span.className = "anf-recepisse-date";
+            span.style.marginLeft = "6px";
+            span.style.fontSize = "12px";
+            span.style.color = "#bf2626";
+            span.style.fontWeight = "700";
+            span.textContent = `(${formatDate(recepisseCreated)})`;
+            pEl.appendChild(span);
+          }
+          break;
+        }
+        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+      }
+    }
+
+    // Ajouter la date du statut au step actif
+    function addActiveStepDateTag() {
+      const statutDate = data?.dossier?.date_statut;
+      if (!activeStep || !statutDate) return;
+      const p = activeStep.querySelector("p");
+      if (!p) return;
+      if (p.querySelector(".anf-active-date")) return;
+      const span = document.createElement("span");
+      if (dynamicClass) span.setAttribute(dynamicClass, "");
+      span.className = "anf-active-date";
+      span.style.marginLeft = "6px";
+      span.style.fontSize = "12px";
+      span.style.color = "#bf2626";
+      span.style.fontWeight = "700";
+      span.textContent = `(${formatDate(statutDate)})`;
+      p.appendChild(span);
+    }
 
     // Création du nouvel élément avec le style et le format spécifiés
     const newElement = document.createElement("li");
@@ -326,12 +449,30 @@
     // Get version for display
     const versionText = `v${extensionVersion}`;
 
+    // Inject or update CSS to handle hover display for long statut code
+    const styleId = "anf-status-style";
+    let styleEl = document.getElementById(styleId);
+    if (!styleEl) {
+      styleEl = document.createElement("style");
+      styleEl.id = styleId;
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = `
+      .itemFriseContent .anf-status-footer { position: absolute; bottom: 2px; left: 6px; right: 6px; font-size: 10px; color: #666; display: flex; justify-content: flex-end; }
+      .itemFriseContent .anf-status-date { white-space: nowrap; }
+      .itemFriseContent .anf-code-popup { position: absolute; top: calc(100% + 5px); left: 50%; background: #ffffff; color: #333; border: 1px solid #255a99; border-radius: 6px; padding: 6px 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); font-size: 11px; font-family: inherit; line-height: 1.3; font-weight: inherit; opacity: 0; visibility: hidden; transform: translate(-50%, 4px); transition: opacity .15s ease, transform .15s ease, visibility 0s linear .15s; z-index: 1000; display: inline-block; white-space: nowrap; width: max-content; }
+      .itemFriseContent:hover .anf-code-popup { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition: opacity .15s ease, transform .15s ease; }
+    `;
+
     newElement.innerHTML = `
       <div ${dynamicClass} class="itemFriseContent" style="position: relative;">
-        <span ${dynamicClass} style="position: absolute; top: 1px; right: 3px; font-size: 8px; color: #aaa; opacity: 0.8;">${versionText}</span>
+        <span ${dynamicClass} style="position: absolute; top: 1px; right: 3px; font-size: 8px; color: #aaa; opacity: 0.85;">${versionText}</span>
         <span ${dynamicClass} class="itemFriseIcon">
           <span ${dynamicClass} aria-hidden="true" class="fa fa-hourglass-start" style="color:  #bf2626!important;"></span>
         </span>
+  <div ${dynamicClass} class="anf-code-popup">${dossierStatusCode} <br/> depuis le <i>${formatDate(
+      data?.dossier?.date_statut
+    )}</i></div>
         <p ${dynamicClass}>
           ${dossierStatus}${
       decretId ? ` - Décret: ${decretId}` : ""
@@ -346,6 +487,13 @@
     console.log(
       "Extension API Naturalisation  : Nouvel élément inséré avec le statut du dossier"
     );
+
+    // Ajouter la date d'entretien d'assimilation si disponible
+    addAssimilationDateIfPresent();
+    // Ajouter la date de récépissé de complétude si disponible
+    addRecepisseCompletuDateIfPresent();
+    // Ajouter la date au step actif
+    addActiveStepDateTag();
   } catch (error) {
     console.log(
       "Extension API Naturalisation : Erreur d'initialisation:",
