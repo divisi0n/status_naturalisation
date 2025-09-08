@@ -10,7 +10,7 @@
   };
 
   // Extension version from manifest.json
-  const extensionVersion = "2.4";
+  const extensionVersion = "2.5";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -247,6 +247,8 @@
           "Classement sans suite, Mise en demeure à affecter",
         css_manuels_a_affecter:
           "Proposition de Classement sans suite manuels à affecter",
+        css_manuels_a_rediger:
+          "Proposition de Classement sans suite manuels à rédiger",
         css_mise_en_demeure_a_rediger:
           "Classement sans suite, Mise en demeure à rédiger",
         css_automatiques_a_affecter:
