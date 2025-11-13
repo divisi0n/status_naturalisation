@@ -100,8 +100,10 @@
 
     // Récupérer les données dossier (date d'entretien + décret) depuis l'API dossier
     let assimilationDate = null;
+    let assimilationPlateforme = null;
     let decretId = null;
     let recepisseCreated = null;
+    let complementInstructionDate = null;
     try {
       const dossierResponse = await fetch(
         CONFIG.API_DOSSIER_ENDPOINT + idDossier
@@ -112,14 +114,29 @@
         // entretien d'assimilation
         assimilationDate =
           dossierDetails?.entretien_assimilation?.date_rdv || null;
+        assimilationPlateforme =
+          dossierDetails?.entretien_assimilation?.unite_gestion?.nom_plateforme || null;
         // décret id (prendre le premier trouvé)
-        const idents = dossierDetails?.etat_civil?.identites_decrets;
+
+        const idents = dossierDetails?.demande?.informations?.etat_civil?.identites_decrets;
         if (Array.isArray(idents) && idents.length > 0) {
           for (const identite of idents) {
             if (identite?.decret?.id) {
               decretId = identite.decret.id;
               break;
             }
+          }
+        }
+        // demande de complément d'instruction (prendre le dernier)
+        const demandeComplements = dossierDetails?.demande_complement;
+        if (Array.isArray(demandeComplements) && demandeComplements.length > 0) {
+          const complementInstructions = demandeComplements.filter(
+            (dc) => dc?.type_complement === "COMPLEMENT_INSTRUCTION"
+          );
+          if (complementInstructions.length > 0) {
+            complementInstructionDate = complementInstructions.sort(
+              (a, b) => new Date(b.date_creation_demande) - new Date(a.date_creation_demande)
+            )[0]?.date_creation_demande;
           }
         }
       }
@@ -146,6 +163,8 @@
       if (notifRes.ok) {
         const notifJson = await notifRes.json();
         const items = Array.isArray(notifJson?._items) ? notifJson._items : [];
+        
+        // Récupérer RECEPISSE_COMPLETUDE_ENVOYE
         const matches = items.filter(
           (it) =>
             String(it?.id_demande) === String(idDossier) &&
@@ -355,6 +374,34 @@
       .getAttributeNames()
       .find((name) => name.startsWith("_ngcontent-"));
 
+    // Ajouter la date de demande de complément d'instruction au libellé s'il existe
+    async function addComplementInstructionDateIfPresent() {
+      if (!complementInstructionDate) return;
+      const maxTries = 20;
+      for (let i = 0; i < maxTries; i++) {
+        const pEl = Array.from(document.querySelectorAll("p")).find(
+          (el) =>
+            el.textContent &&
+            el.textContent.trim().toLowerCase() === "examen des pièces en cours"
+        );
+        if (pEl) {
+          if (!pEl.querySelector(".anf-complement-date")) {
+            const span = document.createElement("span");
+            if (dynamicClass) span.setAttribute(dynamicClass, "");
+            span.className = "anf-complement-date";
+            span.style.marginLeft = "6px";
+            span.style.fontSize = "12px";
+            span.style.color = "#ff6b00";
+            span.style.fontWeight = "700";
+            span.innerHTML = `<br/><span style="color: #ff6b00; font-size: 11px;"><i class="fa fa-exclamation-triangle"></i> Complément demandé le ${formatDate(complementInstructionDate)}</span>`;
+            pEl.appendChild(span);
+          }
+          break;
+        }
+        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+      }
+    }
+
     // Ajouter la date d'entretien d'assimilation au libellé s'il existe
     async function addAssimilationDateIfPresent() {
       if (!assimilationDate) return;
@@ -373,7 +420,11 @@
             span.style.marginLeft = "6px";
             span.style.fontSize = "12px";
             span.style.color = "#bf2626";
-            span.innerHTML = `<b>(${formatDate(assimilationDate)})</b>`;
+            let content = `<b>(${formatDate(assimilationDate)})</b>`;
+            if (assimilationPlateforme) {
+              content += `<br/><span style="color: #bf2626; font-size: 11px;"><i class="fa fa-map-marker"></i> ${assimilationPlateforme}</span>`;
+            }
+            span.innerHTML = content;
             pEl.appendChild(span);
           }
           break;
@@ -433,21 +484,10 @@
     const newElement = document.createElement("li");
     newElement.setAttribute(dynamicClass, "");
     newElement.className = "itemFrise active ng-star-inserted";
-    newElement.setAttribute(
-      "style",
-      `
-      background: linear-gradient(165deg, #dbe2e9, #ffffff);
-      border: 2px solid #255a99;
-      border-radius: 8px;
-      box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.2), 5px 5px 15px rgba(0, 0, 0, 0.3);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: Arial, sans-serif;
-      font-size: 18px;
-      color: #080000;
-    `
-    );
+    newElement.style.background = "linear-gradient(165deg, #dbe2e9, #ffffff)";
+    newElement.style.border = "2px solid #255a99";
+    newElement.style.borderRadius = "8px";
+    newElement.style.boxShadow = "inset 2px 2px 5px rgba(0, 0, 0, 0.2), 5px 5px 15px rgba(0, 0, 0, 0.3)";
     // Get version for display
     const versionText = `v${extensionVersion}`;
 
@@ -476,9 +516,7 @@
       data?.dossier?.date_statut
     )}</i></div>
         <p ${dynamicClass}>
-          ${dossierStatus}${
-      decretId ? ` - Décret: ${decretId}` : ""
-    } <span style="color: #bf2626;">(${daysAgo(
+          ${dossierStatus} <span style="color: #bf2626;">(${daysAgo(
       data?.dossier?.date_statut
     )})</span>
         </p>
@@ -490,6 +528,36 @@
       "Extension API Naturalisation  : Nouvel élément inséré avec le statut du dossier"
     );
 
+    // Ajouter une étape pour le décret si disponible
+    if (decretId) {
+      const decretElement = document.createElement("li");
+      decretElement.setAttribute(dynamicClass, "");
+      decretElement.className = "itemFrise active ng-star-inserted";
+      decretElement.style.background = "linear-gradient(165deg, #d4f4dd, #f0fff4)";
+      decretElement.style.border = "2px solid #10b981";
+      decretElement.style.borderRadius = "8px";
+      decretElement.style.boxShadow = "inset 2px 2px 5px rgba(16, 185, 129, 0.2), 5px 5px 15px rgba(0, 0, 0, 0.3)";
+
+      decretElement.innerHTML = `
+        <div ${dynamicClass} class="itemFriseContent" style="position: relative;">
+          <span ${dynamicClass} style="position: absolute; top: 1px; right: 3px; font-size: 8px; color: #aaa; opacity: 0.85;">${versionText}</span>
+          <span ${dynamicClass} class="itemFriseIcon">
+            <span ${dynamicClass} aria-hidden="true" class="fa fa-thumbs-up" style="color: #19a53cff!important;"></span>
+          </span>
+          <p ${dynamicClass}>
+            Décret de Naturalisation <span style="color: #bf2626;">${decretId}</span>
+          </p>
+        </div>
+      `;
+      
+      newElement.parentNode.insertBefore(decretElement, newElement.nextSibling);
+      console.log(
+        "Extension API Naturalisation  : Élément décret inséré avec l'ID: " + decretId
+      );
+    }
+
+    // Ajouter la date de demande de complément d'instruction si disponible
+    addComplementInstructionDateIfPresent();
     // Ajouter la date d'entretien d'assimilation si disponible
     addAssimilationDateIfPresent();
     // Ajouter la date de récépissé de complétude si disponible
