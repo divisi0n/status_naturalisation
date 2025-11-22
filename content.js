@@ -529,7 +529,6 @@
     );
 
     // Ajouter une étape pour le décret si disponible
-    decretId = "223";
     if (decretId) {
       const decretElement = document.createElement("li");
       decretElement.setAttribute(dynamicClass, "");
