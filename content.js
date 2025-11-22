@@ -10,7 +10,7 @@
   };
 
   // Extension version from manifest.json
-  const extensionVersion = "2.5";
+  const extensionVersion = "2.6";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -363,7 +363,7 @@
       const yyyy = String(d.getFullYear());
       const hh = String(d.getHours()).padStart(2, "0");
       const mi = String(d.getMinutes()).padStart(2, "0");
-      return `${dd}/${mm}/${yyyy} ${hh}h${mi}`;
+      return `${dd}/${mm}/${yyyy}`; // ${hh}h${mi}`;
     }
 
     // Attendre l'élément actif au lieu de lancer une erreur s'il n'est pas trouvé
@@ -529,6 +529,7 @@
     );
 
     // Ajouter une étape pour le décret si disponible
+    decretId = "223";
     if (decretId) {
       const decretElement = document.createElement("li");
       decretElement.setAttribute(dynamicClass, "");
@@ -537,6 +538,7 @@
       decretElement.style.border = "2px solid #10b981";
       decretElement.style.borderRadius = "8px";
       decretElement.style.boxShadow = "inset 2px 2px 5px rgba(16, 185, 129, 0.2), 5px 5px 15px rgba(0, 0, 0, 0.3)";
+      decretElement.style.marginLeft = "20px";
 
       decretElement.innerHTML = `
         <div ${dynamicClass} class="itemFriseContent" style="position: relative;">
@@ -545,7 +547,11 @@
             <span ${dynamicClass} aria-hidden="true" class="fa fa-thumbs-up" style="color: #19a53cff!important;"></span>
           </span>
           <p ${dynamicClass}>
-            Décret de Naturalisation <span style="color: #bf2626;">${decretId}</span>
+            Décret de Naturalisation <span style="color: #bf2626;">N° ${decretId}</span>
+            <br/>
+            <a href="https://www.legifrance.gouv.fr/search/all?tab_selection=all&searchField=ALL&query=nationalit%C3%A9+fran%C3%A7aise&page=1&init=true" target="_blank" style="color: #255a99; text-decoration: none; font-size: 11px;">
+              <i class="fa fa-search" aria-hidden="true"></i> LégiFrance
+            </a>
           </p>
         </div>
       `;
@@ -556,6 +562,104 @@
       );
     }
 
+    // Fonction pour masquer/afficher le numéro de série
+    async function addSeriesVisibilityToggle() {
+      const maxTries = 20;
+      for (let i = 0; i < maxTries; i++) {
+        const tds = Array.from(document.querySelectorAll('td.fixed'));
+        const seriesTd = tds.find(td => /^\d{4}X\s\d+$/.test(td.textContent.trim()));
+
+        if (seriesTd) {
+            if (seriesTd.querySelector('.anf-toggle-serie')) return;
+
+            const fullSerie = seriesTd.textContent.trim();
+            const parts = fullSerie.split(' ');
+            if (parts.length !== 2) return;
+
+            const prefix = parts[0];
+            const suffix = parts[1];
+            const maskedSuffix = '*'.repeat(suffix.length);
+            
+            let isHidden = true;
+
+            seriesTd.textContent = '';
+            
+            const textSpan = document.createElement('span');
+            textSpan.textContent = `${prefix} ${maskedSuffix}`;
+            seriesTd.appendChild(textSpan);
+
+            const icon = document.createElement('i');
+            icon.className = 'fa fa-eye-slash anf-toggle-serie';
+            icon.style.marginLeft = '8px';
+            icon.style.cursor = 'pointer';
+            icon.style.color = '#255a99';
+            
+            icon.onclick = function(e) {
+                e.stopPropagation();
+                isHidden = !isHidden;
+                if (isHidden) {
+                    textSpan.textContent = `${prefix} ${maskedSuffix}`;
+                    icon.className = 'fa fa-eye-slash anf-toggle-serie';
+                } else {
+                    textSpan.textContent = `${prefix} ${suffix}`;
+                    icon.className = 'fa fa-eye anf-toggle-serie';
+                }
+            };
+
+            seriesTd.appendChild(icon);
+            break;
+        }
+        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+      }
+    }
+
+    // Fonction pour masquer/afficher le numéro de timbre fiscal
+    async function addFiscalStampVisibilityToggle() {
+      const maxTries = 20;
+      for (let i = 0; i < maxTries; i++) {
+        const tds = Array.from(document.querySelectorAll('td.fixed'));
+        // Fiscal stamp is usually a 16 digit number
+        const fiscalTd = tds.find(td => /^\d{16}$/.test(td.textContent.trim()));
+
+        if (fiscalTd) {
+            if (fiscalTd.querySelector('.anf-toggle-fiscal')) return;
+
+            const fullStamp = fiscalTd.textContent.trim();
+            const maskedStamp = '*'.repeat(fullStamp.length);
+            
+            let isHidden = true;
+
+            fiscalTd.textContent = '';
+            
+            const textSpan = document.createElement('span');
+            textSpan.textContent = maskedStamp;
+            fiscalTd.appendChild(textSpan);
+
+            const icon = document.createElement('i');
+            icon.className = 'fa fa-eye-slash anf-toggle-fiscal';
+            icon.style.marginLeft = '8px';
+            icon.style.cursor = 'pointer';
+            icon.style.color = '#255a99';
+            
+            icon.onclick = function(e) {
+                e.stopPropagation();
+                isHidden = !isHidden;
+                if (isHidden) {
+                    textSpan.textContent = maskedStamp;
+                    icon.className = 'fa fa-eye-slash anf-toggle-fiscal';
+                } else {
+                    textSpan.textContent = fullStamp;
+                    icon.className = 'fa fa-eye anf-toggle-fiscal';
+                }
+            };
+
+            fiscalTd.appendChild(icon);
+            break;
+        }
+        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+      }
+    }
+
     // Ajouter la date de demande de complément d'instruction si disponible
     addComplementInstructionDateIfPresent();
     // Ajouter la date d'entretien d'assimilation si disponible
@@ -564,6 +668,10 @@
     addRecepisseCompletuDateIfPresent();
     // Ajouter la date au step actif
     addActiveStepDateTag();
+    // Ajouter le toggle pour le numéro de série
+    addSeriesVisibilityToggle();
+    // Ajouter le toggle pour le numéro de timbre fiscal
+    addFiscalStampVisibilityToggle();
   } catch (error) {
     console.log(
       "Extension API Naturalisation : Erreur d'initialisation:",
