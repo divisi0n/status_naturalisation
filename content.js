@@ -10,7 +10,7 @@
   };
 
   // Extension version from manifest.json
-  const extensionVersion = "2.6";
+  const extensionVersion = "2.8";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -104,6 +104,7 @@
     let decretId = null;
     let recepisseCreated = null;
     let complementInstructionDate = null;
+    let demandeDate = null;
     try {
       const dossierResponse = await fetch(
         CONFIG.API_DOSSIER_ENDPOINT + idDossier
@@ -111,6 +112,10 @@
       if (dossierResponse.ok) {
         const raw = await dossierResponse.json();
         const dossierDetails = raw?.data ?? raw;
+
+        // Date de demande (consommation taxe)
+        demandeDate = dossierDetails?.taxe_payee?.date_consommation || null;
+
         // entretien d'assimilation
         assimilationDate =
           dossierDetails?.entretien_assimilation?.date_rdv || null;
@@ -374,6 +379,30 @@
       .getAttributeNames()
       .find((name) => name.startsWith("_ngcontent-"));
 
+    // Ajouter la date de demande envoyée au libellé s'il existe
+    async function addDemandeEnvoyeeDateIfPresent() {
+      if (!demandeDate) return;
+      const maxTries = 20;
+      for (let i = 0; i < maxTries; i++) {
+        const pEl = Array.from(document.querySelectorAll("p")).find(
+          (el) =>
+            el.textContent &&
+            (el.textContent.trim().toLowerCase() === "demande envoyée" || el.textContent.trim().toLowerCase() === "dossier déposé")
+        );
+        if (pEl) {
+          if (!pEl.querySelector(".anf-demande-date")) {
+            const span = document.createElement("span");
+            if (dynamicClass) span.setAttribute(dynamicClass, "");
+            span.className = "anf-step-info anf-demande-date";
+            span.innerHTML = `${formatDate(demandeDate)} <span class="secondary-text">(${daysAgo(demandeDate)})</span>`;
+            pEl.appendChild(span);
+          }
+          break;
+        }
+        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+      }
+    }
+
     // Ajouter la date de demande de complément d'instruction au libellé s'il existe
     async function addComplementInstructionDateIfPresent() {
       if (!complementInstructionDate) return;
@@ -388,12 +417,9 @@
           if (!pEl.querySelector(".anf-complement-date")) {
             const span = document.createElement("span");
             if (dynamicClass) span.setAttribute(dynamicClass, "");
-            span.className = "anf-complement-date";
-            span.style.marginLeft = "6px";
-            span.style.fontSize = "12px";
-            span.style.color = "#ff6b00";
-            span.style.fontWeight = "700";
-            span.innerHTML = `<br/><span style="color: #ff6b00; font-size: 11px;"><i class="fa fa-exclamation-triangle"></i> Complément demandé le ${formatDate(complementInstructionDate)}</span>`;
+            span.className = "anf-step-info anf-complement-date";
+            span.innerHTML = `Complément demandé le ${formatDate(complementInstructionDate)}`;
+            pEl.appendChild(document.createElement("br"));
             pEl.appendChild(span);
           }
           break;
@@ -416,16 +442,36 @@
           if (!pEl.querySelector(".anf-assim-date")) {
             const span = document.createElement("span");
             if (dynamicClass) span.setAttribute(dynamicClass, "");
-            span.className = "anf-assim-date";
-            span.style.marginLeft = "6px";
-            span.style.fontSize = "12px";
-            span.style.color = "#bf2626";
-            let content = `<b>(${formatDate(assimilationDate)})</b>`;
-            if (assimilationPlateforme) {
-              content += `<br/><span style="color: #bf2626; font-size: 11px;"><i class="fa fa-map-marker"></i> ${assimilationPlateforme}</span>`;
-            }
-            span.innerHTML = content;
+            span.className = "anf-step-info anf-assim-date";
+            
+            span.innerHTML = `${formatDate(assimilationDate)}`;
             pEl.appendChild(span);
+
+            if (assimilationPlateforme) {
+              pEl.appendChild(document.createElement("br"));
+              const pSpan = document.createElement("span");
+              if (dynamicClass) pSpan.setAttribute(dynamicClass, "");
+              pSpan.className = "anf-step-info";
+              pSpan.style.marginTop = "4px";
+              pSpan.style.cursor = "pointer";
+              
+              const tSpan = document.createElement("span");
+              const hiddenText = "  " + "*".repeat(12);
+              tSpan.textContent = hiddenText;
+              pSpan.appendChild(tSpan);
+              
+              let hidden = true;
+              pSpan.onclick = function(e){
+                  e.stopPropagation();
+                  hidden = !hidden;
+                  if(hidden){
+                      tSpan.textContent = hiddenText;
+                  } else {
+                      tSpan.textContent = "  " + assimilationPlateforme;
+                  }
+              };
+              pEl.appendChild(pSpan);
+            }
           }
           break;
         }
@@ -448,12 +494,8 @@
           if (!pEl.querySelector(".anf-recepisse-date")) {
             const span = document.createElement("span");
             if (dynamicClass) span.setAttribute(dynamicClass, "");
-            span.className = "anf-recepisse-date";
-            span.style.marginLeft = "6px";
-            span.style.fontSize = "12px";
-            span.style.color = "#bf2626";
-            span.style.fontWeight = "700";
-            span.textContent = `(${formatDate(recepisseCreated)})`;
+            span.className = "anf-step-info anf-recepisse-date";
+            span.innerHTML = `${formatDate(recepisseCreated)}`;
             pEl.appendChild(span);
           }
           break;
@@ -471,12 +513,8 @@
       if (p.querySelector(".anf-active-date")) return;
       const span = document.createElement("span");
       if (dynamicClass) span.setAttribute(dynamicClass, "");
-      span.className = "anf-active-date";
-      span.style.marginLeft = "6px";
-      span.style.fontSize = "12px";
-      span.style.color = "#bf2626";
-      span.style.fontWeight = "700";
-      span.textContent = `(${formatDate(statutDate)})`;
+      span.className = "anf-step-info anf-active-date";
+      span.innerHTML = `${formatDate(statutDate)}`;
       p.appendChild(span);
     }
 
@@ -504,6 +542,50 @@
       .itemFriseContent .anf-status-date { white-space: nowrap; }
       .itemFriseContent .anf-code-popup { position: absolute; top: calc(100% + 5px); left: 50%; background: #ffffff; color: #333; border: 1px solid #255a99; border-radius: 6px; padding: 6px 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); font-size: 11px; font-family: inherit; line-height: 1.3; font-weight: inherit; opacity: 0; visibility: hidden; transform: translate(-50%, 4px); transition: opacity .15s ease, transform .15s ease, visibility 0s linear .15s; z-index: 1000; display: inline-block; white-space: nowrap; width: max-content; }
       .itemFriseContent:hover .anf-code-popup { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition: opacity .15s ease, transform .15s ease; }
+      
+      /* New badge styles for dates and info */
+      .anf-step-info {
+        display: inline-flex;
+        align-items: center;
+        flex-wrap: wrap;       /* Allow inner content to wrap */
+        gap: 5px;
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px; /* Pill shape */
+        padding: 2px 10px;
+        margin: 2px 0 2px 6px; /* Vertical spacing for wrapping */
+        font-size: 11px;
+        color: #475569; /* Slate 600 */
+        font-weight: 600;
+        vertical-align: middle;
+        white-space: normal;   /* Allow text to wrap */
+        line-height: 1.4;      /* Better line height for wrapped text */
+        max-width: 98%;        /* Prevent overflow */
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        transition: all 0.2s ease;
+      }
+      .anf-step-info:hover {
+        background-color: #f1f5f9;
+        border-color: #cbd5e1;
+      }
+      .anf-step-info i {
+        color: #255a99; /* Primary Blue */
+        font-size: 12px;
+      }
+      .anf-step-info.warning {
+        background-color: #fff7ed; /* Orange 50 */
+        border-color: #ffedd5;
+        color: #c2410c; /* Orange 700 */
+      }
+      .anf-step-info.warning i {
+        color: #ea580c; /* Orange 600 */
+      }
+      .anf-step-info .secondary-text {
+        color: #94a3b8; /* Slate 400 */
+        font-size: 10px;
+        font-weight: 400;
+        margin-left: 2px;
+      }
     `;
 
     newElement.innerHTML = `
@@ -659,6 +741,8 @@
       }
     }
 
+    // Ajouter la date de demande envoyée si disponible
+    addDemandeEnvoyeeDateIfPresent();
     // Ajouter la date de demande de complément d'instruction si disponible
     addComplementInstructionDateIfPresent();
     // Ajouter la date d'entretien d'assimilation si disponible
