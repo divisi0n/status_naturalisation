@@ -1,3 +1,6 @@
+// Compatibilité Firefox (browser.*) et Chrome (chrome.*)
+const _runtime = (typeof browser !== "undefined" && browser.runtime) ? browser.runtime : chrome.runtime;
+
 function injectScript(file_path, tag) {
   var node = document.getElementsByTagName(tag)[0];
   var script = document.createElement("script");
@@ -6,9 +9,8 @@ function injectScript(file_path, tag) {
   node.appendChild(script);
 }
 
-// Inject local CryptoJS library
-//injectScript(chrome.runtime.getURL("crypto-js.min.js"), "body");
-injectScript(chrome.runtime.getURL("forge.min.js"), "body");
+// Inject local forge (cryptographie)
+injectScript(_runtime.getURL("forge.min.js"), "body");
 
 // Inject content.js
-injectScript(chrome.runtime.getURL("content.js"), "body");
+injectScript(_runtime.getURL("content.js"), "body");
