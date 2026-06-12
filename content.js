@@ -10,7 +10,7 @@
   };
 
   // Extension version from manifest.json
-  const extensionVersion = "2.8";
+  const extensionVersion = "3.1";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -56,142 +56,8 @@
 
   if (!window.location.href.includes(CONFIG.URL_PATTERN)) return;
 
-  try {
-    // Fonction pour attendre l'élément de l'onglet
-    async function waitForElement() {
-      while (true) {
-        const tabElement = Array.from(
-          document.querySelectorAll('a[role="tab"]')
-        ).find((el) => el.textContent.trim() === CONFIG.TAB_NAME);
-
-        if (tabElement) {
-          return tabElement;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, CONFIG.WAIT_TIME)); // Attendre avant de réessayer
-      }
-    }
-
-    // fonction pour attendre le chargement de l'étape active
-    async function waitForActiveStep() {
-      while (true) {
-        const activeStep = document.querySelector("li.itemFrise.active");
-        if (activeStep) return activeStep;
-        await new Promise((resolve) => setTimeout(resolve, CONFIG.WAIT_TIME));
-      }
-    }
-
-    const tabElement = await waitForElement();
-    tabElement.click();
-
-    // Obtenir les données du dossier directement
-    const response = await fetch(CONFIG.API_ENDPOINT);
-    if (!response.ok) throw new Error(`Erreur API: ${response.status}`);
-
-    const dossierData = await response.json();
-    if (!dossierData?.dossier?.statut) throw new Error("Statut non trouvé");
-
-    const data = {
-      dossier: dossierData.dossier,
-    };
-
-    // Récupérer l'ID du dossier
-    const idDossier = dossierData.dossier.id;
-
-    // Récupérer les données dossier (date d'entretien + décret) depuis l'API dossier
-    let assimilationDate = null;
-    let assimilationPlateforme = null;
-    let decretId = null;
-    let recepisseCreated = null;
-    let complementInstructionDate = null;
-    let demandeDate = null;
-    try {
-      const dossierResponse = await fetch(
-        CONFIG.API_DOSSIER_ENDPOINT + idDossier
-      );
-      if (dossierResponse.ok) {
-        const raw = await dossierResponse.json();
-        const dossierDetails = raw?.data ?? raw;
-
-        // Date de demande (consommation taxe)
-        demandeDate = dossierDetails?.taxe_payee?.date_consommation || null;
-
-        // entretien d'assimilation
-        assimilationDate =
-          dossierDetails?.entretien_assimilation?.date_rdv || null;
-        assimilationPlateforme =
-          dossierDetails?.entretien_assimilation?.unite_gestion?.nom_plateforme || null;
-        // décret id (prendre le premier trouvé)
-
-        const idents = dossierDetails?.demande?.informations?.etat_civil?.identites_decrets;
-        if (Array.isArray(idents) && idents.length > 0) {
-          for (const identite of idents) {
-            if (identite?.decret?.id) {
-              decretId = identite.decret.id;
-              break;
-            }
-          }
-        }
-        // demande de complément d'instruction (prendre le dernier)
-        const demandeComplements = dossierDetails?.demande_complement;
-        if (Array.isArray(demandeComplements) && demandeComplements.length > 0) {
-          const complementInstructions = demandeComplements.filter(
-            (dc) => dc?.type_complement === "COMPLEMENT_INSTRUCTION"
-          );
-          if (complementInstructions.length > 0) {
-            complementInstructionDate = complementInstructions.sort(
-              (a, b) => new Date(b.date_creation_demande) - new Date(a.date_creation_demande)
-            )[0]?.date_creation_demande;
-          }
-        }
-      }
-    } catch (e) {
-      console.log(
-        "Erreur lors de la récupération de l'entretien d'assimilation:",
-        e
-      );
-    }
-
-    if (!decretId) {
-      console.log(
-        "Extension API Naturalisation  : Aucun numéro de décret trouvé pour ce dossier"
-      );
-    }
-
-    // Fin récupération dossier (une seule requête)
-
-    // Récupérer les notifications et extraire la date de réception du récépissé de complétude
-    try {
-      const notifRes = await fetch(
-        "https://administration-etrangers-en-france.interieur.gouv.fr/api/notifications"
-      );
-      if (notifRes.ok) {
-        const notifJson = await notifRes.json();
-        const items = Array.isArray(notifJson?._items) ? notifJson._items : [];
-        
-        // Récupérer RECEPISSE_COMPLETUDE_ENVOYE
-        const matches = items.filter(
-          (it) =>
-            String(it?.id_demande) === String(idDossier) &&
-            it?.type_notification === "NATIONALITE" &&
-            it?.motif_notification === "RECEPISSE_COMPLETUDE_ENVOYE"
-        );
-        if (matches.length) {
-          recepisseCreated = matches.sort(
-            (a, b) => new Date(b._created) - new Date(a._created)
-          )[0]?._created;
-        }
-      }
-    } catch (e) {
-      console.log(
-        "Extension API Naturalisation  : Erreur lors de la récupération des notifications:",
-        e
-      );
-    }
-
-    // Fonction pour obtenir la description du statut
-    async function getStatusDescription(status) {
-      const statusMap = {
+  function getStatusDescription(status) {
+    const statusMap = {
         // 0 Brouillon
         draft: "Dossier en brouillon",
         // 1 Dépôt de la demande
@@ -296,25 +162,10 @@
         code_non_reconnu: "Code non reconnu",
       };
 
-      return statusMap[status] || status || statusMap["code_non_reconnu"];
-    }
+    return statusMap[status] || status || statusMap["code_non_reconnu"];
+  }
 
-    let dossierStatusCode = IamKamal_23071993_v2(data.dossier.statut);
-
-    const dossierStatus = await getStatusDescription(
-      dossierStatusCode.toLowerCase()
-    );
-
-    console.log(
-      "Extension API Naturalisation  : Statut code = " + dossierStatusCode
-    );
-
-    console.log(
-      "Extension API Naturalisation  : Statut description = " + dossierStatus
-    );
-
-    // Fonction pour calculer le nombre de jours écoulés
-    function daysAgo(dateString) {
+  function daysAgo(dateString) {
       const inputDate = new Date(dateString);
       const currentDate = new Date();
       const diffInDays = Math.floor(
@@ -358,179 +209,306 @@
       return `il y a ${months} mois`;
     }
 
-    // Formatter la date au format DD/MM/YY HH24hMI
-    function formatDate(dateString) {
-      if (!dateString) return "";
-      const d = new Date(dateString);
-      if (isNaN(d)) return "";
-      const dd = String(d.getDate()).padStart(2, "0");
-      const mm = String(d.getMonth() + 1).padStart(2, "0");
-      const yyyy = String(d.getFullYear());
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mi = String(d.getMinutes()).padStart(2, "0");
-      return `${dd}/${mm}/${yyyy}`; // ${hh}h${mi}`;
+  function formatDate(dateString) {
+    if (!dateString) return "";
+    const d = new Date(dateString);
+    if (isNaN(d)) return "";
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = String(d.getFullYear());
+    return `${dd}/${mm}/${yyyy}`;
+  }
+
+  function hasNaturalisationData(apiInfos) {
+    if (!apiInfos?.idDossier || !apiInfos?.dossier?.statut) return false;
+
+    const code = String(apiInfos.statutCode || "").trim();
+    if (!code || code === "-" || code.toLowerCase() === "code_non_reconnu") {
+      return false;
     }
 
-    // Attendre l'élément actif au lieu de lancer une erreur s'il n'est pas trouvé
-    const activeStep = await waitForActiveStep();
+    return Boolean(apiInfos.statutDescription);
+  }
 
-    // Trouver la classe CSS dynamique
-    const dynamicClass = activeStep
-      .getAttributeNames()
-      .find((name) => name.startsWith("_ngcontent-"));
+  function removeStepperIfPresent() {
+    document.getElementById("anf-extension-stepper-root")?.remove();
+  }
 
-    // Ajouter la date de demande envoyée au libellé s'il existe
-    async function addDemandeEnvoyeeDateIfPresent() {
-      if (!demandeDate) return;
-      const maxTries = 20;
-      for (let i = 0; i < maxTries; i++) {
-        const pEl = Array.from(document.querySelectorAll("p")).find(
-          (el) =>
-            el.textContent &&
-            (el.textContent.trim().toLowerCase() === "demande envoyée" || el.textContent.trim().toLowerCase() === "dossier déposé")
-        );
-        if (pEl) {
-          if (!pEl.querySelector(".anf-demande-date")) {
-            const span = document.createElement("span");
-            if (dynamicClass) span.setAttribute(dynamicClass, "");
-            span.className = "anf-step-info anf-demande-date";
-            span.innerHTML = `${formatDate(demandeDate)} <span class="secondary-text">(${daysAgo(demandeDate)})</span>`;
-            pEl.appendChild(span);
+  async function fetchApiInfos() {
+    let response;
+    try {
+      response = await fetch(CONFIG.API_ENDPOINT);
+    } catch (error) {
+      console.warn(
+        "Extension API Naturalisation : API stepper inaccessible:",
+        error
+      );
+      return null;
+    }
+
+    if (response.status === 404 || response.status === 204) return null;
+    if (!response.ok) throw new Error(`Erreur API stepper: ${response.status}`);
+
+    let dossierData;
+    try {
+      dossierData = await response.json();
+    } catch {
+      return null;
+    }
+
+    if (!dossierData?.dossier?.id || !dossierData?.dossier?.statut) {
+      return null;
+    }
+
+    const data = { dossier: dossierData.dossier };
+    const idDossier = dossierData.dossier.id;
+    const dossierStatusCode = IamKamal_23071993_v2(data.dossier.statut);
+    if (
+      !dossierStatusCode ||
+      dossierStatusCode === "-" ||
+      String(dossierStatusCode).trim() === ""
+    ) {
+      return null;
+    }
+
+    const dossierStatus = getStatusDescription(
+      String(dossierStatusCode).toLowerCase()
+    );
+
+    return {
+      version: extensionVersion,
+      idDossier,
+      statutCode: dossierStatusCode,
+      statutDescription: dossierStatus,
+      dateStatut: data.dossier.date_statut,
+      dateStatutRelative: daysAgo(data.dossier.date_statut),
+      demandeDate: null,
+      complementInstructionDate: null,
+      assimilationDate: null,
+      assimilationPlateforme: null,
+      recepisseCreated: null,
+      decretId: null,
+      dossier: data.dossier,
+      dossierDetails: null,
+      notifications: [],
+      raw: {
+        stepper: dossierData,
+        dossier: null,
+        notifications: [],
+      },
+    };
+  }
+
+  async function enrichApiInfos(apiInfos) {
+    const idDossier = apiInfos.idDossier;
+    const [dossierRaw, notifRaw] = await Promise.all([
+      fetch(CONFIG.API_DOSSIER_ENDPOINT + idDossier)
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null),
+      fetch(
+        "https://administration-etrangers-en-france.interieur.gouv.fr/api/notifications"
+      )
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null),
+    ]);
+
+    if (dossierRaw) {
+      const dossierDetails = dossierRaw?.data ?? dossierRaw;
+      apiInfos.dossierDetails = dossierDetails;
+      apiInfos.raw.dossier = dossierDetails;
+      apiInfos.demandeDate =
+        dossierDetails?.taxe_payee?.date_consommation || null;
+      apiInfos.assimilationDate =
+        dossierDetails?.entretien_assimilation?.date_rdv || null;
+      apiInfos.assimilationPlateforme =
+        dossierDetails?.entretien_assimilation?.unite_gestion?.nom_plateforme ||
+        null;
+
+      const idents =
+        dossierDetails?.demande?.informations?.etat_civil?.identites_decrets;
+      if (Array.isArray(idents) && idents.length > 0) {
+        for (const identite of idents) {
+          if (identite?.decret?.id) {
+            apiInfos.decretId = identite.decret.id;
+            break;
           }
-          break;
         }
-        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+      }
+
+      const demandeComplements = dossierDetails?.demande_complement;
+      if (Array.isArray(demandeComplements) && demandeComplements.length > 0) {
+        const complementInstructions = demandeComplements.filter(
+          (dc) => dc?.type_complement === "COMPLEMENT_INSTRUCTION"
+        );
+        if (complementInstructions.length > 0) {
+          apiInfos.complementInstructionDate = complementInstructions.sort(
+            (a, b) =>
+              new Date(b.date_creation_demande) -
+              new Date(a.date_creation_demande)
+          )[0]?.date_creation_demande;
+        }
       }
     }
 
-    // Ajouter la date de demande de complément d'instruction au libellé s'il existe
-    async function addComplementInstructionDateIfPresent() {
-      if (!complementInstructionDate) return;
-      const maxTries = 20;
-      for (let i = 0; i < maxTries; i++) {
-        const pEl = Array.from(document.querySelectorAll("p")).find(
-          (el) =>
-            el.textContent &&
-            el.textContent.trim().toLowerCase() === "examen des pièces en cours"
-        );
-        if (pEl) {
-          if (!pEl.querySelector(".anf-complement-date")) {
-            const span = document.createElement("span");
-            if (dynamicClass) span.setAttribute(dynamicClass, "");
-            span.className = "anf-step-info anf-complement-date";
-            span.innerHTML = `Complément demandé le ${formatDate(complementInstructionDate)}`;
-            pEl.appendChild(document.createElement("br"));
-            pEl.appendChild(span);
-          }
-          break;
-        }
-        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+    if (notifRaw) {
+      apiInfos.notifications = Array.isArray(notifRaw?._items)
+        ? notifRaw._items
+        : [];
+      apiInfos.raw.notifications = apiInfos.notifications;
+      const matches = apiInfos.notifications.filter(
+        (it) =>
+          String(it?.id_demande) === String(idDossier) &&
+          it?.type_notification === "NATIONALITE" &&
+          it?.motif_notification === "RECEPISSE_COMPLETUDE_ENVOYE"
+      );
+      if (matches.length) {
+        apiInfos.recepisseCreated = matches.sort(
+          (a, b) => new Date(b._created) - new Date(a._created)
+        )[0]?._created;
       }
     }
 
-    // Ajouter la date d'entretien d'assimilation au libellé s'il existe
-    async function addAssimilationDateIfPresent() {
-      if (!assimilationDate) return;
-      const maxTries = 20;
-      for (let i = 0; i < maxTries; i++) {
-        const pEl = Array.from(document.querySelectorAll("p")).find(
-          (el) =>
-            el.textContent &&
-            el.textContent.trim().toLowerCase() === "entretien d'assimilation"
-        );
-        if (pEl) {
-          if (!pEl.querySelector(".anf-assim-date")) {
-            const span = document.createElement("span");
-            if (dynamicClass) span.setAttribute(dynamicClass, "");
-            span.className = "anf-step-info anf-assim-date";
-            
-            span.innerHTML = `${formatDate(assimilationDate)}`;
-            pEl.appendChild(span);
+    return apiInfos;
+  }
 
-            if (assimilationPlateforme) {
-              pEl.appendChild(document.createElement("br"));
-              const pSpan = document.createElement("span");
-              if (dynamicClass) pSpan.setAttribute(dynamicClass, "");
-              pSpan.className = "anf-step-info";
-              pSpan.style.marginTop = "4px";
-              pSpan.style.cursor = "pointer";
-              
-              const tSpan = document.createElement("span");
-              const hiddenText = "  " + "*".repeat(12);
-              tSpan.textContent = hiddenText;
-              pSpan.appendChild(tSpan);
-              
-              let hidden = true;
-              pSpan.onclick = function(e){
-                  e.stopPropagation();
-                  hidden = !hidden;
-                  if(hidden){
-                      tSpan.textContent = hiddenText;
-                  } else {
-                      tSpan.textContent = "  " + assimilationPlateforme;
-                  }
-              };
-              pEl.appendChild(pSpan);
-            }
-          }
-          break;
-        }
-        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
-      }
+  function logApiInfos(apiInfos) {
+    window.__ANF_API_INFOS__ = apiInfos;
+
+    console.group(
+      `Extension API Naturalisation v${apiInfos.version} — Infos API`
+    );
+    console.log("Statut code:", apiInfos.statutCode);
+    console.log("Statut description:", apiInfos.statutDescription);
+    console.log("Date statut:", apiInfos.dateStatut, `(${apiInfos.dateStatutRelative})`);
+    console.log("ID dossier:", apiInfos.idDossier);
+    console.log("Date demande:", apiInfos.demandeDate || "—");
+    console.log("Complément instruction:", apiInfos.complementInstructionDate || "—");
+    console.log("Entretien assimilation:", apiInfos.assimilationDate || "—");
+    if (apiInfos.assimilationPlateforme) {
+      console.log("Plateforme assimilation:", apiInfos.assimilationPlateforme);
     }
+    console.log("Récépissé complétude:", apiInfos.recepisseCreated || "—");
+    console.log("N° décret:", apiInfos.decretId || "—");
+    console.log("Résumé:", {
+      statutCode: apiInfos.statutCode,
+      statutDescription: apiInfos.statutDescription,
+      dateStatut: apiInfos.dateStatut,
+      idDossier: apiInfos.idDossier,
+      decretId: apiInfos.decretId,
+    });
+    console.log("Données brutes (stepper):", apiInfos.raw.stepper);
+    console.log("Données brutes (dossier):", apiInfos.raw.dossier);
+    console.log("Données brutes (notifications):", apiInfos.raw.notifications);
+    console.log(
+      "Accès rapide console: tapez __ANF_API_INFOS__ pour revoir toutes les infos"
+    );
+    console.groupEnd();
+  }
 
-    // Ajouter la date de réception du récépissé de complétude au libellé s'il existe
-    async function addRecepisseCompletuDateIfPresent() {
-      if (!recepisseCreated) return;
-      const maxTries = 20;
-      for (let i = 0; i < maxTries; i++) {
-        const pEl = Array.from(document.querySelectorAll("p")).find(
-          (el) =>
-            el.textContent &&
-            el.textContent.trim().toLowerCase() ===
-              "réception du récépissé de complétude"
-        );
-        if (pEl) {
-          if (!pEl.querySelector(".anf-recepisse-date")) {
-            const span = document.createElement("span");
-            if (dynamicClass) span.setAttribute(dynamicClass, "");
-            span.className = "anf-step-info anf-recepisse-date";
-            span.innerHTML = `${formatDate(recepisseCreated)}`;
-            pEl.appendChild(span);
-          }
-          break;
-        }
-        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
-      }
+  const RECREATED_TRACKING_STEPS = [
+    { key: "demande_envoyee", title: "Demande envoyée" },
+    { key: "examen_pieces", title: "Examen des pièces en cours" },
+    { key: "demande_deposee", title: "Demande déposée" },
+    { key: "traitement_plateforme_1", title: "Traitement en cours (Plateforme)" },
+    { key: "recepisse_completude", title: "Réception du récépissé de complétude" },
+    { key: "traitement_plateforme_2", title: "Traitement en cours (Plateforme)" },
+    { key: "entretien_assimilation", title: "Entretien d'assimilation" },
+    { key: "traitement_plateforme_3", title: "Traitement en cours (Plateforme)" },
+    { key: "traitement_sdanf_1", title: "Traitement en cours (SDANF)" },
+    { key: "traitement_scec", title: "Traitement en cours (SCEC)" },
+    { key: "traitement_sdanf_2", title: "Traitement en cours (SDANF)" },
+    { key: "decision_prise", title: "Décision prise" },
+    { key: "ceremonie_naturalisation", title: "Cérémonie de naturalisation" },
+  ];
+
+  function createStepIcon(stepKey) {
+    const iconByStep = {
+      demande_envoyee: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7Z"></path></svg>`,
+      examen_pieces: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-9 9 8.7 8.7 0 0 1-6-2.4"></path><path d="M3 12a9 9 0 0 1 15-6.7"></path><path d="M18 3v5h-5"></path><path d="M6 21v-5h5"></path></svg>`,
+      demande_deposee: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v1"></path><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7H3"></path></svg>`,
+      traitement_plateforme_1: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path><path d="M15 5l4 4"></path></svg>`,
+      recepisse_completude: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h6"></path></svg>`,
+      traitement_plateforme_2: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path><path d="M15 5l4 4"></path></svg>`,
+      entretien_assimilation: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"></path><path d="M8 9h8"></path><path d="M8 13h5"></path></svg>`,
+      traitement_plateforme_3: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path><path d="M15 5l4 4"></path></svg>`,
+      traitement_sdanf_1: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="m16 8 4 4-4 4"></path></svg>`,
+      traitement_scec: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>`,
+      traitement_sdanf_2: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="m16 8 4 4-4 4"></path></svg>`,
+      decision_prise: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2Z"></path><path d="m22 6-10 7L2 6"></path></svg>`,
+      ceremonie_naturalisation: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8.5" cy="10" r="2"></circle><path d="M6 16c.7-1.4 1.5-2 2.5-2s1.8.6 2.5 2"></path><path d="M14 9h4"></path><path d="M14 13h4"></path><path d="M14 17h3"></path></svg>`,
+    };
+
+    const icon = document.createElement("span");
+    icon.className = "anf-track-step-icon";
+    icon.innerHTML = iconByStep[stepKey] || iconByStep.traitement_plateforme_1;
+    return icon;
+  }
+
+  const VISIBILITY_ICON_SVG = {
+    hidden: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.7 10.7a3 3 0 0 0 4.6 4.6"></path><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7"></path><path d="m2 2 20 20"></path></svg>`,
+    visible: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7"></path><circle cx="12" cy="12" r="3"></circle></svg>`,
+  };
+
+  function createVisibilityToggleIcon(hidden) {
+    const icon = document.createElement("span");
+    icon.className = "anf-toggle-plateforme";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = hidden
+      ? VISIBILITY_ICON_SVG.hidden
+      : VISIBILITY_ICON_SVG.visible;
+    return icon;
+  }
+
+  function inferRecreatedTrackingIndex(statusCode) {
+    const code = String(statusCode || "").trim().toLowerCase();
+    if (!code || code === "-" || code === "code_non_reconnu") return 0;
+    if (code === "draft") return 0;
+    if (code === "dossier_depose") return 2;
+    if (code.startsWith("verification_")) return 1;
+    if (code.startsWith("instruction_recepisse")) return 4;
+    if (code === "instruction_date_ea_a_fixer") return 5;
+    if (code.startsWith("ea_") || code.includes("date_ea")) return 6;
+    if (code.startsWith("instruction_")) return 3;
+    if (code.startsWith("prop_decision_pref_")) return 7;
+    if (
+      code === "controle_a_affecter" ||
+      code === "controle_a_effectuer" ||
+      code === "controle_en_attente_retour_ministeriel" ||
+      code === "controle_en_attente_retour_prefecture"
+    ) {
+      return 8;
     }
-
-    // Ajouter la date du statut au step actif
-    function addActiveStepDateTag() {
-      const statutDate = data?.dossier?.date_statut;
-      if (!activeStep || !statutDate) return;
-      const p = activeStep.querySelector("p");
-      if (!p) return;
-      if (p.querySelector(".anf-active-date")) return;
-      const span = document.createElement("span");
-      if (dynamicClass) span.setAttribute(dynamicClass, "");
-      span.className = "anf-step-info anf-active-date";
-      span.innerHTML = `${formatDate(statutDate)}`;
-      p.appendChild(span);
+    if (
+      code === "controle_en_attente_pec" ||
+      code === "controle_pec_a_faire" ||
+      code.startsWith("scec_") ||
+      code === "non_applicable"
+    ) {
+      return 9;
     }
+    if (code.startsWith("controle_")) return 10;
+    if (
+      code.startsWith("decret_") ||
+      code === "transmis_a_ac" ||
+      code === "a_verifier_avant_insertion_decret" ||
+      code === "prete_pour_insertion_decret" ||
+      code === "inseree_dans_decret" ||
+      code === "decret_envoye_prefecture" ||
+      code === "notification_envoyee" ||
+      code === "demande_traitee" ||
+      code.startsWith("decision_") ||
+      code.startsWith("css_") ||
+      code.includes("irrecevabilite") ||
+      code === "demande_en_cours_rapo"
+    ) {
+      return 11;
+    }
+    if (code.includes("ceremonie") || code.includes("cérémonie")) return 12;
+    return 1;
+  }
 
-    // Création du nouvel élément avec le style et le format spécifiés
-    const newElement = document.createElement("li");
-    newElement.setAttribute(dynamicClass, "");
-    newElement.className = "itemFrise active ng-star-inserted";
-    newElement.style.background = "linear-gradient(165deg, #dbe2e9, #ffffff)";
-    newElement.style.border = "2px solid #255a99";
-    newElement.style.borderRadius = "8px";
-    newElement.style.boxShadow = "inset 2px 2px 5px rgba(0, 0, 0, 0.2), 5px 5px 15px rgba(0, 0, 0, 0.3)";
-    // Get version for display
-    const versionText = `v${extensionVersion}`;
-
-    // Inject or update CSS to handle hover display for long statut code
-    const styleId = "anf-status-style";
+  function injectRecreatedStepperCss() {
+    const styleId = "anf-recreated-stepper-style";
     let styleEl = document.getElementById(styleId);
     if (!styleEl) {
       styleEl = document.createElement("style");
@@ -538,227 +516,683 @@
       document.head.appendChild(styleEl);
     }
     styleEl.textContent = `
-      .itemFriseContent .anf-status-footer { position: absolute; bottom: 2px; left: 6px; right: 6px; font-size: 10px; color: #666; display: flex; justify-content: flex-end; }
-      .itemFriseContent .anf-status-date { white-space: nowrap; }
-      .itemFriseContent .anf-code-popup { position: absolute; top: calc(100% + 5px); left: 50%; background: #ffffff; color: #333; border: 1px solid #255a99; border-radius: 6px; padding: 6px 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); font-size: 11px; font-family: inherit; line-height: 1.3; font-weight: inherit; opacity: 0; visibility: hidden; transform: translate(-50%, 4px); transition: opacity .15s ease, transform .15s ease, visibility 0s linear .15s; z-index: 1000; display: inline-block; white-space: nowrap; width: max-content; }
-      .itemFriseContent:hover .anf-code-popup { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition: opacity .15s ease, transform .15s ease; }
-      
-      /* New badge styles for dates and info */
-      .anf-step-info {
+      #anf-extension-stepper-root,
+      #anf-extension-stepper-root * {
+        box-sizing: border-box;
+      }
+      #anf-extension-stepper-root {
+        --anf-bleu: #000091;
+        --anf-rouge: #e1000f;
+        --anf-ink: #161616;
+        --anf-muted: #666;
+        --anf-line: #e5e5e5;
+        --anf-surface: #ffffff;
+        font-family: inherit;
+        background: #f8f8fc;
+        border-bottom: 1px solid var(--anf-line);
+      }
+      #anf-extension-stepper-root .anf-stepper-inner {
+        position: relative;
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: 10px 14px 12px;
+      }
+      #anf-extension-stepper-root ol,
+      #anf-extension-stepper-root ul,
+      #anf-extension-stepper-root li {
+        list-style: none !important;
+        list-style-type: none !important;
+        padding-left: 0 !important;
+        margin-left: 0 !important;
+      }
+      #anf-extension-stepper-root li::marker,
+      #anf-extension-stepper-root ol::marker,
+      #anf-extension-stepper-root ul::marker {
+        content: none !important;
+        display: none !important;
+      }
+      .anf-track-head {
+        margin-bottom: 6px;
+      }
+      .anf-track-title {
+        margin: 0;
+        color: var(--anf-ink);
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1.25;
+      }
+      .anf-track-progress-wrap {
+        margin-bottom: 8px;
+      }
+      .anf-track-progress-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+        color: var(--anf-muted);
+        font-size: 10px;
+      }
+      .anf-track-progress-meta strong {
+        color: var(--anf-ink);
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .anf-track-progress {
+        height: 3px;
+        border-radius: 999px;
+        background: #ececf3;
+        overflow: hidden;
+      }
+      .anf-track-progress-fill {
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--anf-bleu), #6a6af4);
+      }
+      .anf-track-rail {
+        display: flex;
+        align-items: stretch;
+        gap: 6px;
+        margin: 0;
+        padding: 0 0 4px;
+        overflow-x: auto;
+        scroll-snap-type: x proximity;
+        scrollbar-width: thin;
+      }
+      .anf-track-rail::-webkit-scrollbar { height: 4px; }
+      .anf-track-rail::-webkit-scrollbar-thumb {
+        background: #c5c5d8;
+        border-radius: 999px;
+      }
+      .anf-track-step {
+        display: flex;
+        flex: 0 0 136px;
+        scroll-snap-align: start;
+      }
+      .anf-track-step-body {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        width: 100%;
+        min-height: 148px;
+        height: auto;
+        padding: 8px 8px 10px;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        background: transparent;
+        overflow: visible;
+      }
+      .anf-track-step-main {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        flex-shrink: 0;
+      }
+      .anf-track-step-icon {
         display: inline-flex;
         align-items: center;
-        flex-wrap: wrap;       /* Allow inner content to wrap */
-        gap: 5px;
-        background-color: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px; /* Pill shape */
-        padding: 2px 10px;
-        margin: 2px 0 2px 6px; /* Vertical spacing for wrapping */
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        color: var(--anf-bleu);
+        flex-shrink: 0;
+      }
+      .anf-track-step-icon svg {
+        display: block;
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .anf-track-step.is-current .anf-track-step-icon { color: var(--anf-rouge); }
+      .anf-track-step.is-pending .anf-track-step-icon { color: #9b9b9b; }
+      .anf-track-step.is-done .anf-track-step-body {
+        background: rgba(0, 0, 145, 0.04);
+      }
+      .anf-track-step.is-done .anf-track-step-title {
+        color: var(--anf-bleu);
+      }
+      .anf-track-step.is-current .anf-track-step-body {
+        background: var(--anf-surface);
+        border-color: rgba(225, 0, 15, 0.2);
+        box-shadow: 0 4px 14px rgba(0, 0, 145, 0.07);
+      }
+      .anf-track-step.is-current .anf-track-step-title {
+        color: var(--anf-rouge);
+      }
+      .anf-track-step.is-pending .anf-track-step-body {
+        opacity: 0.65;
+      }
+      .anf-track-step.is-pending .anf-track-step-title {
+        color: #9b9b9b;
+        font-weight: 500;
+      }
+      .anf-track-step-accent {
+        display: block;
+        width: 100%;
+        height: 2px;
+        border-radius: 999px;
+        background: #d8d8e4;
+      }
+      .anf-track-step.is-done .anf-track-step-accent {
+        background: var(--anf-bleu);
+      }
+      .anf-track-step.is-current .anf-track-step-accent {
+        background: var(--anf-rouge);
+      }
+      .anf-track-step-title {
+        margin: 0;
+        width: 100%;
         font-size: 11px;
-        color: #475569; /* Slate 600 */
-        font-weight: 600;
-        vertical-align: middle;
-        white-space: normal;   /* Allow text to wrap */
-        line-height: 1.4;      /* Better line height for wrapped text */
-        max-width: 98%;        /* Prevent overflow */
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        transition: all 0.2s ease;
+        font-weight: 700;
+        line-height: 1.3;
+        text-align: center;
+        word-break: break-word;
       }
-      .anf-step-info:hover {
-        background-color: #f1f5f9;
-        border-color: #cbd5e1;
+      .anf-track-step-details {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        width: 100%;
+        flex: 1;
+        margin-top: auto;
+        overflow: visible;
       }
-      .anf-step-info i {
-        color: #255a99; /* Primary Blue */
-        font-size: 12px;
-      }
-      .anf-step-info.warning {
-        background-color: #fff7ed; /* Orange 50 */
-        border-color: #ffedd5;
-        color: #c2410c; /* Orange 700 */
-      }
-      .anf-step-info.warning i {
-        color: #ea580c; /* Orange 600 */
-      }
-      .anf-step-info .secondary-text {
-        color: #94a3b8; /* Slate 400 */
+      .anf-track-step-detail {
+        display: block;
+        width: 100%;
+        color: var(--anf-muted);
         font-size: 10px;
-        font-weight: 400;
-        margin-left: 2px;
+        font-weight: 500;
+        line-height: 1.3;
+        text-align: center;
+        white-space: normal;
+        word-break: break-word;
+      }
+      .anf-track-step-detail.is-date { color: #4b4b6a; }
+      .anf-track-step-detail.is-status-card {
+        padding: 6px 7px;
+        border-radius: 6px;
+        border: 1px solid rgba(0, 0, 145, 0.12);
+        background: #fafafe;
+        color: var(--anf-ink);
+        font-size: 10px;
+        font-weight: 600;
+        line-height: 1.35;
+        text-align: center;
+      }
+      .anf-track-step-detail.is-status-time {
+        color: var(--anf-rouge);
+        font-size: 10px;
+        text-align: center;
+      }
+      .anf-track-step-detail.is-decret-card {
+        padding: 6px 7px;
+        border-radius: 6px;
+        border: 1px solid #9be9b0;
+        background: #f3fff6;
+        color: #18794e;
+        font-size: 10px;
+        white-space: pre-line;
+        text-align: center;
+      }
+      .anf-track-step-detail.is-link {
+        color: var(--anf-bleu);
+        text-decoration: none;
+        font-weight: 700;
+      }
+      .anf-track-step-detail.is-link:hover { text-decoration: underline; }
+      .anf-track-masked-row {
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        cursor: pointer;
+        width: auto !important;
+      }
+      .anf-toggle-plateforme {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
+        color: var(--anf-bleu);
+        flex-shrink: 0;
+      }
+      .anf-toggle-plateforme svg {
+        display: block;
+        width: 14px;
+        height: 14px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .anf-stepper-version {
+        color: #aaa;
+        font-size: 9px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+      @media (max-width: 900px) {
+        .anf-track-step { flex-basis: 128px; }
       }
     `;
+  }
 
-    newElement.innerHTML = `
-      <div ${dynamicClass} class="itemFriseContent" style="position: relative;">
-        <span ${dynamicClass} style="position: absolute; top: 1px; right: 3px; font-size: 8px; color: #aaa; opacity: 0.85;">${versionText}</span>
-        <span ${dynamicClass} class="itemFriseIcon">
-          <span ${dynamicClass} aria-hidden="true" class="fa fa-hourglass-start" style="color:  #bf2626!important;"></span>
-        </span>
-  <div ${dynamicClass} class="anf-code-popup">${dossierStatusCode} <br/> depuis le <i>${formatDate(
-      data?.dossier?.date_statut
-    )}</i></div>
-        <p ${dynamicClass}>
-          ${dossierStatus} <span style="color: #bf2626;">(${daysAgo(
-      data?.dossier?.date_statut
-    )})</span>
-        </p>
+  function equalizeStepHeights(rail) {
+    const bodies = Array.from(rail.querySelectorAll(".anf-track-step-body"));
+    if (!bodies.length) return;
+
+    bodies.forEach((body) => {
+      body.style.height = "auto";
+    });
+
+    const maxHeight = bodies.reduce((max, body) => {
+      return Math.max(max, Math.ceil(body.getBoundingClientRect().height));
+    }, 0);
+
+    if (!maxHeight) return;
+
+    bodies.forEach((body) => {
+      body.style.height = `${maxHeight}px`;
+    });
+  }
+
+  function createStepDetail(text, variant) {
+    const el = document.createElement("span");
+    el.className = `anf-track-step-detail${variant ? ` is-${variant}` : ""}`;
+    el.textContent = text;
+    return el;
+  }
+
+  function appendStepDetails(item, stepKey, index, currentIndex, apiInfos) {
+    const {
+      statutDescription: dossierStatus,
+      statutCode: dossierStatusCode,
+      dateStatut,
+      dateStatutRelative,
+      demandeDate,
+      complementInstructionDate,
+      assimilationDate,
+      assimilationPlateforme,
+      recepisseCreated,
+      decretId,
+    } = apiInfos;
+    const isCurrent = index === currentIndex;
+    const details = [];
+
+    if (stepKey === "demande_envoyee" && demandeDate) {
+      details.push({ text: formatDate(demandeDate), variant: "date" });
+    }
+    if (stepKey === "examen_pieces" && complementInstructionDate) {
+      details.push({
+        text: `Complément demandé le ${formatDate(complementInstructionDate)}`,
+        variant: "date",
+      });
+    }
+    if (stepKey === "demande_deposee" && demandeDate) {
+      details.push({ text: formatDate(demandeDate), variant: "date" });
+    }
+    if (stepKey === "recepisse_completude" && recepisseCreated) {
+      details.push({ text: formatDate(recepisseCreated), variant: "date" });
+    }
+    if (stepKey === "entretien_assimilation") {
+      if (assimilationDate) {
+        details.push({ text: formatDate(assimilationDate), variant: "date" });
+      }
+      if (assimilationPlateforme) {
+        details.push({
+          text: "************",
+          revealText: assimilationPlateforme,
+          variant: "date",
+          masked: true,
+        });
+      }
+    }
+    if (isCurrent && !["decision_prise", "ceremonie_naturalisation"].includes(stepKey)) {
+      details.push({ text: dossierStatus, variant: "status-card" });
+      if (dateStatutRelative) {
+        details.push({ text: `(${dateStatutRelative})`, variant: "status-time" });
+      }
+    }
+    if (stepKey === "decision_prise") {
+      if (isCurrent) {
+        details.push({ text: dossierStatus, variant: "status-card" });
+        if (dateStatutRelative) {
+          details.push({ text: `(${dateStatutRelative})`, variant: "status-time" });
+        }
+      }
+      if (decretId) {
+        details.push({
+          text: `Décret de Naturalisation\nN° ${decretId}`,
+          variant: "decret-card",
+        });
+        details.push({
+          text: "LégiFrance",
+          variant: "link",
+          href: "https://www.legifrance.gouv.fr/search/all?tab_selection=all&searchField=ALL&query=nationalit%C3%A9+fran%C3%A7aise&page=1&init=true",
+        });
+      }
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "anf-track-step-details";
+    if (!details.length) {
+      item.appendChild(wrapper);
+      return;
+    }
+
+    details.forEach((detail) => {
+      if (detail.href) {
+        const el = document.createElement("a");
+        el.className = `anf-track-step-detail is-${detail.variant}`;
+        el.textContent = detail.text;
+        el.href = detail.href;
+        el.target = "_blank";
+        el.rel = "noopener noreferrer";
+        wrapper.appendChild(el);
+        return;
+      }
+
+      if (detail.masked && detail.revealText) {
+        const row = document.createElement("span");
+        row.className = `anf-track-step-detail is-${detail.variant} anf-track-masked-row`;
+
+        const textSpan = document.createElement("span");
+        textSpan.textContent = detail.text;
+
+        let hidden = true;
+        const icon = createVisibilityToggleIcon(hidden);
+        icon.setAttribute(
+          "title",
+          hidden ? "Afficher la plateforme" : "Masquer la plateforme"
+        );
+
+        const toggleMasked = (e) => {
+          e.stopPropagation();
+          hidden = !hidden;
+          textSpan.textContent = hidden ? detail.text : detail.revealText;
+          icon.innerHTML = hidden
+            ? VISIBILITY_ICON_SVG.hidden
+            : VISIBILITY_ICON_SVG.visible;
+          icon.setAttribute(
+            "title",
+            hidden ? "Afficher la plateforme" : "Masquer la plateforme"
+          );
+        };
+
+        row.onclick = toggleMasked;
+        row.appendChild(textSpan);
+        row.appendChild(icon);
+        wrapper.appendChild(row);
+        return;
+      }
+
+      const el = createStepDetail(detail.text, detail.variant);
+      wrapper.appendChild(el);
+    });
+    item.appendChild(wrapper);
+  }
+
+  function renderRecreatedStepper(apiInfos) {
+    const header = document.querySelector("anef-header");
+    if (!header) {
+      console.warn("Extension API Naturalisation : anef-header introuvable");
+      return false;
+    }
+
+    injectRecreatedStepperCss();
+
+    const inferredIndex = inferRecreatedTrackingIndex(apiInfos.statutCode);
+    const currentIndex = Math.min(
+      RECREATED_TRACKING_STEPS.length - 1,
+      apiInfos.decretId ? Math.max(inferredIndex, 11) : inferredIndex
+    );
+
+    let root = document.getElementById("anf-extension-stepper-root");
+    if (!root) {
+      root = document.createElement("section");
+      root.id = "anf-extension-stepper-root";
+      header.insertAdjacentElement("afterend", root);
+    }
+
+    const progressPct = Math.round(
+      ((currentIndex + 1) / RECREATED_TRACKING_STEPS.length) * 100
+    );
+    const currentStepTitle = RECREATED_TRACKING_STEPS[currentIndex]?.title || "";
+
+    root.innerHTML = `
+      <div class="anf-stepper-inner">
+        <div class="anf-track-head">
+          <h2 class="anf-track-title">Demande d'accès à la Nationalité Française</h2>
+        </div>
+        <div class="anf-track-progress-wrap">
+          <div class="anf-track-progress-meta">
+            <span><strong>${currentStepTitle}</strong></span>
+            <span>${progressPct}% · <span class="anf-stepper-version">v${extensionVersion}</span></span>
+          </div>
+          <div class="anf-track-progress" aria-hidden="true">
+            <div class="anf-track-progress-fill" style="width:${progressPct}%"></div>
+          </div>
+        </div>
+        <div class="anf-track-rail" role="list" aria-label="Étapes du dossier"></div>
       </div>
     `;
 
-    activeStep.parentNode.insertBefore(newElement, activeStep.nextSibling);
+    const list = root.querySelector(".anf-track-rail");
+    RECREATED_TRACKING_STEPS.forEach((step, index) => {
+      const item = document.createElement("div");
+      item.className = "anf-track-step";
+      item.setAttribute("role", "listitem");
+      item.dataset.stepKey = step.key;
+      if (index < currentIndex) item.classList.add("is-done");
+      if (index === currentIndex) item.classList.add("is-current");
+      if (index > currentIndex) item.classList.add("is-pending");
+
+      const body = document.createElement("div");
+      body.className = "anf-track-step-body";
+
+      const accent = document.createElement("span");
+      accent.className = "anf-track-step-accent";
+      accent.setAttribute("aria-hidden", "true");
+      body.appendChild(accent);
+
+      const main = document.createElement("div");
+      main.className = "anf-track-step-main";
+      main.appendChild(createStepIcon(step.key));
+
+      const title = document.createElement("h3");
+      title.className = "anf-track-step-title";
+      title.textContent = step.title;
+      main.appendChild(title);
+      body.appendChild(main);
+
+      item.appendChild(body);
+      appendStepDetails(body, step.key, index, currentIndex, apiInfos);
+      list.appendChild(item);
+    });
+
+    requestAnimationFrame(() => {
+      equalizeStepHeights(list);
+      const currentItem = list.querySelector(".anf-track-step.is-current");
+      if (currentItem) {
+        currentItem.scrollIntoView({
+          behavior: "smooth",
+          inline: "center",
+          block: "nearest",
+        });
+      }
+    });
+
     console.log(
-      "Extension API Naturalisation  : Nouvel élément inséré avec le statut du dossier"
+      `Extension API Naturalisation : stepper injecté (${currentIndex + 1}/${RECREATED_TRACKING_STEPS.length})`
     );
+    return true;
+  }
 
-    // Ajouter une étape pour le décret si disponible
-    if (decretId) {
-      const decretElement = document.createElement("li");
-      decretElement.setAttribute(dynamicClass, "");
-      decretElement.className = "itemFrise active ng-star-inserted";
-      decretElement.style.background = "linear-gradient(165deg, #d4f4dd, #f0fff4)";
-      decretElement.style.border = "2px solid #10b981";
-      decretElement.style.borderRadius = "8px";
-      decretElement.style.boxShadow = "inset 2px 2px 5px rgba(16, 185, 129, 0.2), 5px 5px 15px rgba(0, 0, 0, 0.3)";
-      decretElement.style.marginLeft = "20px";
+  function waitForAnefHeader(timeoutMs = 5000) {
+    return new Promise((resolve) => {
+      if (document.querySelector("anef-header")) {
+        resolve(true);
+        return;
+      }
 
-      decretElement.innerHTML = `
-        <div ${dynamicClass} class="itemFriseContent" style="position: relative;">
-          <span ${dynamicClass} style="position: absolute; top: 1px; right: 3px; font-size: 8px; color: #aaa; opacity: 0.85;">${versionText}</span>
-          <span ${dynamicClass} class="itemFriseIcon">
-            <span ${dynamicClass} aria-hidden="true" class="fa fa-thumbs-up" style="color: #19a53cff!important;"></span>
-          </span>
-          <p ${dynamicClass}>
-            Décret de Naturalisation <span style="color: #bf2626;">N° ${decretId}</span>
-            <br/>
-            <a href="https://www.legifrance.gouv.fr/search/all?tab_selection=all&searchField=ALL&query=nationalit%C3%A9+fran%C3%A7aise&page=1&init=true" target="_blank" style="color: #255a99; text-decoration: none; font-size: 11px;">
-              <i class="fa fa-search" aria-hidden="true"></i> LégiFrance
-            </a>
-          </p>
-        </div>
-      `;
-      
-      newElement.parentNode.insertBefore(decretElement, newElement.nextSibling);
-      console.log(
-        "Extension API Naturalisation  : Élément décret inséré avec l'ID: " + decretId
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        observer.disconnect();
+        clearTimeout(timer);
+        resolve(value);
+      };
+
+      const observer = new MutationObserver(() => {
+        if (document.querySelector("anef-header")) finish(true);
+      });
+      observer.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+
+      const timer = setTimeout(
+        () => finish(Boolean(document.querySelector("anef-header"))),
+        timeoutMs
       );
-    }
+    });
+  }
 
-    // Fonction pour masquer/afficher le numéro de série
-    async function addSeriesVisibilityToggle() {
-      const maxTries = 20;
-      for (let i = 0; i < maxTries; i++) {
-        const tds = Array.from(document.querySelectorAll('td.fixed'));
-        const seriesTd = tds.find(td => /^\d{4}X\s\d+$/.test(td.textContent.trim()));
+  async function addSeriesVisibilityToggle() {
+    for (let i = 0; i < 20; i++) {
+      const tds = Array.from(document.querySelectorAll("td.fixed"));
+      const seriesTd = tds.find((td) =>
+        /^\d{4}X\s\d+$/.test(td.textContent.trim())
+      );
+      if (seriesTd) {
+        if (seriesTd.querySelector(".anf-toggle-serie")) return;
 
-        if (seriesTd) {
-            if (seriesTd.querySelector('.anf-toggle-serie')) return;
+        const fullSerie = seriesTd.textContent.trim();
+        const parts = fullSerie.split(" ");
+        if (parts.length !== 2) return;
 
-            const fullSerie = seriesTd.textContent.trim();
-            const parts = fullSerie.split(' ');
-            if (parts.length !== 2) return;
+        const [prefix, suffix] = parts;
+        const maskedSuffix = "*".repeat(suffix.length);
+        let isHidden = true;
 
-            const prefix = parts[0];
-            const suffix = parts[1];
-            const maskedSuffix = '*'.repeat(suffix.length);
-            
-            let isHidden = true;
+        seriesTd.textContent = "";
+        const textSpan = document.createElement("span");
+        textSpan.textContent = `${prefix} ${maskedSuffix}`;
+        seriesTd.appendChild(textSpan);
 
-            seriesTd.textContent = '';
-            
-            const textSpan = document.createElement('span');
-            textSpan.textContent = `${prefix} ${maskedSuffix}`;
-            seriesTd.appendChild(textSpan);
-
-            const icon = document.createElement('i');
-            icon.className = 'fa fa-eye-slash anf-toggle-serie';
-            icon.style.marginLeft = '8px';
-            icon.style.cursor = 'pointer';
-            icon.style.color = '#255a99';
-            
-            icon.onclick = function(e) {
-                e.stopPropagation();
-                isHidden = !isHidden;
-                if (isHidden) {
-                    textSpan.textContent = `${prefix} ${maskedSuffix}`;
-                    icon.className = 'fa fa-eye-slash anf-toggle-serie';
-                } else {
-                    textSpan.textContent = `${prefix} ${suffix}`;
-                    icon.className = 'fa fa-eye anf-toggle-serie';
-                }
-            };
-
-            seriesTd.appendChild(icon);
-            break;
-        }
-        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+        const icon = document.createElement("i");
+        icon.className = "fa fa-eye-slash anf-toggle-serie";
+        icon.style.marginLeft = "8px";
+        icon.style.cursor = "pointer";
+        icon.style.color = "#255a99";
+        icon.onclick = function (e) {
+          e.stopPropagation();
+          isHidden = !isHidden;
+          textSpan.textContent = isHidden
+            ? `${prefix} ${maskedSuffix}`
+            : `${prefix} ${suffix}`;
+          icon.className = isHidden
+            ? "fa fa-eye-slash anf-toggle-serie"
+            : "fa fa-eye anf-toggle-serie";
+        };
+        seriesTd.appendChild(icon);
+        return;
       }
+      await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
     }
+  }
 
-    // Fonction pour masquer/afficher le numéro de timbre fiscal
-    async function addFiscalStampVisibilityToggle() {
-      const maxTries = 20;
-      for (let i = 0; i < maxTries; i++) {
-        const tds = Array.from(document.querySelectorAll('td.fixed'));
-        // Fiscal stamp is usually a 16 digit number
-        const fiscalTd = tds.find(td => /^\d{16}$/.test(td.textContent.trim()));
+  async function addFiscalStampVisibilityToggle() {
+    for (let i = 0; i < 20; i++) {
+      const tds = Array.from(document.querySelectorAll("td.fixed"));
+      const fiscalTd = tds.find((td) => /^\d{16}$/.test(td.textContent.trim()));
+      if (fiscalTd) {
+        if (fiscalTd.querySelector(".anf-toggle-fiscal")) return;
 
-        if (fiscalTd) {
-            if (fiscalTd.querySelector('.anf-toggle-fiscal')) return;
+        const fullStamp = fiscalTd.textContent.trim();
+        const maskedStamp = "*".repeat(fullStamp.length);
+        let isHidden = true;
 
-            const fullStamp = fiscalTd.textContent.trim();
-            const maskedStamp = '*'.repeat(fullStamp.length);
-            
-            let isHidden = true;
+        fiscalTd.textContent = "";
+        const textSpan = document.createElement("span");
+        textSpan.textContent = maskedStamp;
+        fiscalTd.appendChild(textSpan);
 
-            fiscalTd.textContent = '';
-            
-            const textSpan = document.createElement('span');
-            textSpan.textContent = maskedStamp;
-            fiscalTd.appendChild(textSpan);
-
-            const icon = document.createElement('i');
-            icon.className = 'fa fa-eye-slash anf-toggle-fiscal';
-            icon.style.marginLeft = '8px';
-            icon.style.cursor = 'pointer';
-            icon.style.color = '#255a99';
-            
-            icon.onclick = function(e) {
-                e.stopPropagation();
-                isHidden = !isHidden;
-                if (isHidden) {
-                    textSpan.textContent = maskedStamp;
-                    icon.className = 'fa fa-eye-slash anf-toggle-fiscal';
-                } else {
-                    textSpan.textContent = fullStamp;
-                    icon.className = 'fa fa-eye anf-toggle-fiscal';
-                }
-            };
-
-            fiscalTd.appendChild(icon);
-            break;
-        }
-        await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+        const icon = document.createElement("i");
+        icon.className = "fa fa-eye-slash anf-toggle-fiscal";
+        icon.style.marginLeft = "8px";
+        icon.style.cursor = "pointer";
+        icon.style.color = "#255a99";
+        icon.onclick = function (e) {
+          e.stopPropagation();
+          isHidden = !isHidden;
+          textSpan.textContent = isHidden ? maskedStamp : fullStamp;
+          icon.className = isHidden
+            ? "fa fa-eye-slash anf-toggle-fiscal"
+            : "fa fa-eye anf-toggle-fiscal";
+        };
+        fiscalTd.appendChild(icon);
+        return;
       }
+      await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+    }
+  }
+
+  function showStepperIfReady(apiInfos, hasHeader) {
+    if (!hasNaturalisationData(apiInfos) || !hasHeader) return false;
+    renderRecreatedStepper(apiInfos);
+    return true;
+  }
+
+  try {
+    const [apiInfos, hasHeader] = await Promise.all([
+      fetchApiInfos(),
+      waitForAnefHeader(),
+    ]);
+
+    if (!hasNaturalisationData(apiInfos)) {
+      removeStepperIfPresent();
+      console.log(
+        "Extension API Naturalisation : aucun dossier naturalisation détecté, stepper masqué"
+      );
+      return;
     }
 
-    // Ajouter la date de demande envoyée si disponible
-    addDemandeEnvoyeeDateIfPresent();
-    // Ajouter la date de demande de complément d'instruction si disponible
-    addComplementInstructionDateIfPresent();
-    // Ajouter la date d'entretien d'assimilation si disponible
-    addAssimilationDateIfPresent();
-    // Ajouter la date de récépissé de complétude si disponible
-    addRecepisseCompletuDateIfPresent();
-    // Ajouter la date au step actif
-    addActiveStepDateTag();
-    // Ajouter le toggle pour le numéro de série
-    addSeriesVisibilityToggle();
-    // Ajouter le toggle pour le numéro de timbre fiscal
-    addFiscalStampVisibilityToggle();
+    if (!hasHeader) {
+      console.warn(
+        "Extension API Naturalisation : anef-header introuvable, stepper non injecté"
+      );
+      return;
+    }
+
+    showStepperIfReady(apiInfos, hasHeader);
+
+    enrichApiInfos(apiInfos)
+      .then((enriched) => {
+        logApiInfos(enriched);
+        showStepperIfReady(enriched, true);
+        addSeriesVisibilityToggle();
+        addFiscalStampVisibilityToggle();
+      })
+      .catch((error) => {
+        console.warn(
+          "Extension API Naturalisation : enrichissement partiel:",
+          error
+        );
+        logApiInfos(apiInfos);
+      });
   } catch (error) {
-    console.log(
-      "Extension API Naturalisation : Erreur d'initialisation:",
-      error
-    );
+    console.error("Extension API Naturalisation : Erreur API:", error);
+    removeStepperIfPresent();
   }
 })();
