@@ -7,7 +7,70 @@
     API_DOSSIER_ENDPOINT:
       "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/usager/dossiers/",
     WAIT_TIME: 100,
+    API_RETRY_DELAY: 3000,
+    API_MAX_RETRIES: 10,
   };
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function fetchStepperWithRetry() {
+    let lastStatus = null;
+
+    for (let attempt = 1; attempt <= CONFIG.API_MAX_RETRIES; attempt++) {
+      try {
+        const response = await fetch(CONFIG.API_ENDPOINT, {
+          credentials: "include",
+        });
+
+        if (response.status === 404 || response.status === 204) {
+          return null;
+        }
+
+        if (!response.ok) {
+          lastStatus = response.status;
+          if (attempt < CONFIG.API_MAX_RETRIES) {
+            console.warn(
+              `Extension API Naturalisation : stepper HTTP ${response.status} (tentative ${attempt}/${CONFIG.API_MAX_RETRIES}), nouvel essai dans 3s`
+            );
+            await sleep(CONFIG.API_RETRY_DELAY);
+            continue;
+          }
+          break;
+        }
+
+        return response;
+      } catch (error) {
+        lastStatus = "network";
+        if (attempt < CONFIG.API_MAX_RETRIES) {
+          console.warn(
+            `Extension API Naturalisation : stepper inaccessible (tentative ${attempt}/${CONFIG.API_MAX_RETRIES}), nouvel essai dans 3s:`,
+            error
+          );
+          await sleep(CONFIG.API_RETRY_DELAY);
+          continue;
+        }
+        console.warn(
+          "Extension API Naturalisation : API stepper inaccessible après 10 tentatives:",
+          error
+        );
+        return null;
+      }
+    }
+
+    if (lastStatus === 401) {
+      console.warn(
+        "Extension API Naturalisation : API stepper 401 — session non authentifiée (connectez-vous sur ANEF ou attendez le chargement complet)"
+      );
+    } else if (lastStatus) {
+      console.warn(
+        `Extension API Naturalisation : API stepper échouée après ${CONFIG.API_MAX_RETRIES} tentatives (HTTP ${lastStatus})`
+      );
+    }
+
+    return null;
+  }
 
   // Extension version from manifest.json
   const extensionVersion = "3.1";
@@ -235,19 +298,8 @@
   }
 
   async function fetchApiInfos() {
-    let response;
-    try {
-      response = await fetch(CONFIG.API_ENDPOINT);
-    } catch (error) {
-      console.warn(
-        "Extension API Naturalisation : API stepper inaccessible:",
-        error
-      );
-      return null;
-    }
-
-    if (response.status === 404 || response.status === 204) return null;
-    if (!response.ok) throw new Error(`Erreur API stepper: ${response.status}`);
+    const response = await fetchStepperWithRetry();
+    if (!response) return null;
 
     let dossierData;
     try {
@@ -1192,7 +1244,10 @@
         logApiInfos(apiInfos);
       });
   } catch (error) {
-    console.error("Extension API Naturalisation : Erreur API:", error);
+    console.error(
+      "Extension API Naturalisation : erreur inattendue:",
+      error
+    );
     removeStepperIfPresent();
   }
 })();
