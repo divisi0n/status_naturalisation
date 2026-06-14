@@ -7,73 +7,86 @@
     API_DOSSIER_ENDPOINT:
       "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/usager/dossiers/",
     WAIT_TIME: 100,
-    API_RETRY_DELAY: 3000,
-    API_MAX_RETRIES: 10,
+    AUTH_WAIT_TIMEOUT: 15000,
+    SSO_AUTH_WAIT_TIMEOUT: 90000,
   };
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async function fetchStepperWithRetry() {
-    let lastStatus = null;
+  function isOAuthCallback() {
+    const href = window.location.href;
+    return /(?:^|[?#&])code=/.test(href) && /session_state=/.test(href);
+  }
 
-    for (let attempt = 1; attempt <= CONFIG.API_MAX_RETRIES; attempt++) {
-      try {
-        const response = await fetch(CONFIG.API_ENDPOINT, {
-          credentials: "include",
-        });
+  function isLoginPromptVisible() {
+    return Boolean(
+      document.querySelector('edu-item-link[data-item="Se connecter"]') ||
+        document.querySelector('edu-item-link[data-item="Sign in"]')
+    );
+  }
 
-        if (response.status === 404 || response.status === 204) {
-          return null;
-        }
+  function isUserLoggedIn() {
+    return Boolean(
+      document.querySelector(
+        'edu-item-link a.fr-icon-user-line[href*="mon-compte"], edu-item-link a[href*="/espace-personnel/mon-compte"]'
+      )
+    );
+  }
 
-        if (!response.ok) {
-          lastStatus = response.status;
-          if (attempt < CONFIG.API_MAX_RETRIES) {
-            console.warn(
-              `Extension API Naturalisation : stepper HTTP ${response.status} (tentative ${attempt}/${CONFIG.API_MAX_RETRIES}), nouvel essai dans 3s`
-            );
-            await sleep(CONFIG.API_RETRY_DELAY);
-            continue;
-          }
-          break;
-        }
+  function getAuthState() {
+    if (isUserLoggedIn()) return "logged-in";
+    if (isLoginPromptVisible()) return "logged-out";
+    return "unknown";
+  }
 
-        return response;
-      } catch (error) {
-        lastStatus = "network";
-        if (attempt < CONFIG.API_MAX_RETRIES) {
-          console.warn(
-            `Extension API Naturalisation : stepper inaccessible (tentative ${attempt}/${CONFIG.API_MAX_RETRIES}), nouvel essai dans 3s:`,
-            error
-          );
-          await sleep(CONFIG.API_RETRY_DELAY);
-          continue;
-        }
-        console.warn(
-          "Extension API Naturalisation : API stepper inaccessible après 10 tentatives:",
-          error
-        );
+  async function waitForAuthResolved() {
+    const timeoutMs = isOAuthCallback()
+      ? CONFIG.SSO_AUTH_WAIT_TIMEOUT
+      : CONFIG.AUTH_WAIT_TIMEOUT;
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const state = getAuthState();
+      if (state !== "unknown") return state;
+      await sleep(300);
+    }
+
+    return getAuthState();
+  }
+
+  async function fetchStepperOnce() {
+    try {
+      const response = await fetch(CONFIG.API_ENDPOINT, {
+        credentials: "include",
+      });
+
+      if (response.status === 404 || response.status === 204) {
         return null;
       }
-    }
 
-    if (lastStatus === 401) {
-      console.warn(
-        "Extension API Naturalisation : API stepper 401 — session non authentifiée (connectez-vous sur ANEF ou attendez le chargement complet)"
-      );
-    } else if (lastStatus) {
-      console.warn(
-        `Extension API Naturalisation : API stepper échouée après ${CONFIG.API_MAX_RETRIES} tentatives (HTTP ${lastStatus})`
-      );
-    }
+      if (!response.ok) {
+        if (response.status === 401) {
+          console.warn(
+            "Extension API Naturalisation : API stepper 401 — session expirée"
+          );
+        }
+        return null;
+      }
 
-    return null;
+      return response;
+    } catch (error) {
+      console.warn(
+        "Extension API Naturalisation : API stepper inaccessible:",
+        error
+      );
+      return null;
+    }
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.1";
+  const extensionVersion = "3.3";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -298,7 +311,7 @@
   }
 
   async function fetchApiInfos() {
-    const response = await fetchStepperWithRetry();
+    const response = await fetchStepperOnce();
     if (!response) return null;
 
     let dossierData;
@@ -1121,57 +1134,76 @@
   }
 
   async function addSeriesVisibilityToggle() {
-    for (let i = 0; i < 20; i++) {
-      const tds = Array.from(document.querySelectorAll("td.fixed"));
-      const seriesTd = tds.find((td) =>
-        /^\d{4}X\s\d+$/.test(td.textContent.trim())
-      );
-      if (seriesTd) {
+    try {
+      for (let i = 0; i < 20; i++) {
+        const tds = Array.from(document.querySelectorAll("td.fixed"));
+        const seriesTd = tds.find((td) =>
+          /^\d{4}X\s\d+$/.test(td.textContent.trim())
+        );
+        if (!seriesTd) {
+          await sleep(CONFIG.WAIT_TIME);
+          continue;
+        }
         if (seriesTd.querySelector(".anf-toggle-serie")) return;
 
         const fullSerie = seriesTd.textContent.trim();
-        const parts = fullSerie.split(" ");
-        if (parts.length !== 2) return;
+        const spaceIndex = fullSerie.indexOf(" ");
+        if (spaceIndex < 0) return;
 
-        const [prefix, suffix] = parts;
-        const maskedSuffix = "*".repeat(suffix.length);
+        const prefix = fullSerie.slice(0, spaceIndex);
+        const suffix = fullSerie.slice(spaceIndex + 1).trim();
+        if (!prefix || !suffix) return;
+
+        const maskedDisplay = prefix + " " + "*".repeat(suffix.length);
+        const fullDisplay = prefix + " " + suffix;
         let isHidden = true;
 
         seriesTd.textContent = "";
         const textSpan = document.createElement("span");
-        textSpan.textContent = `${prefix} ${maskedSuffix}`;
+        textSpan.textContent = maskedDisplay;
         seriesTd.appendChild(textSpan);
 
-        const icon = document.createElement("i");
-        icon.className = "fa fa-eye-slash anf-toggle-serie";
+        const icon = document.createElement("span");
+        icon.className = "anf-toggle-serie";
+        icon.innerHTML = VISIBILITY_ICON_SVG.hidden;
         icon.style.marginLeft = "8px";
         icon.style.cursor = "pointer";
         icon.style.color = "#255a99";
+        icon.style.display = "inline-flex";
+        icon.style.verticalAlign = "middle";
         icon.onclick = function (e) {
           e.stopPropagation();
           isHidden = !isHidden;
-          textSpan.textContent = isHidden
-            ? `${prefix} ${maskedSuffix}`
-            : `${prefix} ${suffix}`;
-          icon.className = isHidden
-            ? "fa fa-eye-slash anf-toggle-serie"
-            : "fa fa-eye anf-toggle-serie";
+          textSpan.textContent = isHidden ? maskedDisplay : fullDisplay;
+          icon.innerHTML = isHidden
+            ? VISIBILITY_ICON_SVG.hidden
+            : VISIBILITY_ICON_SVG.visible;
         };
         seriesTd.appendChild(icon);
         return;
       }
-      await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+    } catch (error) {
+      console.warn(
+        "Extension API Naturalisation : toggle série ignoré:",
+        error
+      );
     }
   }
 
   async function addFiscalStampVisibilityToggle() {
-    for (let i = 0; i < 20; i++) {
-      const tds = Array.from(document.querySelectorAll("td.fixed"));
-      const fiscalTd = tds.find((td) => /^\d{16}$/.test(td.textContent.trim()));
-      if (fiscalTd) {
+    try {
+      for (let i = 0; i < 20; i++) {
+        const tds = Array.from(document.querySelectorAll("td.fixed"));
+        const fiscalTd = tds.find((td) => /^\d{16}$/.test(td.textContent.trim()));
+        if (!fiscalTd) {
+          await sleep(CONFIG.WAIT_TIME);
+          continue;
+        }
         if (fiscalTd.querySelector(".anf-toggle-fiscal")) return;
 
         const fullStamp = fiscalTd.textContent.trim();
+        if (!fullStamp) return;
+
         const maskedStamp = "*".repeat(fullStamp.length);
         let isHidden = true;
 
@@ -1180,23 +1212,30 @@
         textSpan.textContent = maskedStamp;
         fiscalTd.appendChild(textSpan);
 
-        const icon = document.createElement("i");
-        icon.className = "fa fa-eye-slash anf-toggle-fiscal";
+        const icon = document.createElement("span");
+        icon.className = "anf-toggle-fiscal";
+        icon.innerHTML = VISIBILITY_ICON_SVG.hidden;
         icon.style.marginLeft = "8px";
         icon.style.cursor = "pointer";
         icon.style.color = "#255a99";
+        icon.style.display = "inline-flex";
+        icon.style.verticalAlign = "middle";
         icon.onclick = function (e) {
           e.stopPropagation();
           isHidden = !isHidden;
           textSpan.textContent = isHidden ? maskedStamp : fullStamp;
-          icon.className = isHidden
-            ? "fa fa-eye-slash anf-toggle-fiscal"
-            : "fa fa-eye anf-toggle-fiscal";
+          icon.innerHTML = isHidden
+            ? VISIBILITY_ICON_SVG.hidden
+            : VISIBILITY_ICON_SVG.visible;
         };
         fiscalTd.appendChild(icon);
         return;
       }
-      await new Promise((r) => setTimeout(r, CONFIG.WAIT_TIME));
+    } catch (error) {
+      console.warn(
+        "Extension API Naturalisation : toggle timbre ignoré:",
+        error
+      );
     }
   }
 
@@ -1206,48 +1245,100 @@
     return true;
   }
 
-  try {
-    const [apiInfos, hasHeader] = await Promise.all([
-      fetchApiInfos(),
-      waitForAnefHeader(),
-    ]);
+  let bootstrapRunning = false;
+  let bootstrapTimer = null;
+  let authObserver = null;
 
-    if (!hasNaturalisationData(apiInfos)) {
-      removeStepperIfPresent();
-      console.log(
-        "Extension API Naturalisation : aucun dossier naturalisation détecté, stepper masqué"
-      );
-      return;
-    }
-
-    if (!hasHeader) {
-      console.warn(
-        "Extension API Naturalisation : anef-header introuvable, stepper non injecté"
-      );
-      return;
-    }
-
-    showStepperIfReady(apiInfos, hasHeader);
-
-    enrichApiInfos(apiInfos)
-      .then((enriched) => {
-        logApiInfos(enriched);
-        showStepperIfReady(enriched, true);
-        addSeriesVisibilityToggle();
-        addFiscalStampVisibilityToggle();
-      })
-      .catch((error) => {
-        console.warn(
-          "Extension API Naturalisation : enrichissement partiel:",
-          error
-        );
-        logApiInfos(apiInfos);
-      });
-  } catch (error) {
-    console.error(
-      "Extension API Naturalisation : erreur inattendue:",
-      error
-    );
-    removeStepperIfPresent();
+  function stopAuthObserver() {
+    authObserver?.disconnect();
+    authObserver = null;
   }
+
+  function watchForLogin() {
+    if (authObserver) return;
+
+    authObserver = new MutationObserver(() => {
+      if (getAuthState() === "logged-in") {
+        stopAuthObserver();
+        scheduleBootstrap(500);
+      }
+    });
+
+    authObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
+  async function bootstrap() {
+    if (bootstrapRunning) return;
+    bootstrapRunning = true;
+
+    try {
+      const hasHeader = await waitForAnefHeader();
+      if (!hasHeader) return;
+
+      const authState = await waitForAuthResolved();
+
+      if (authState !== "logged-in") {
+        removeStepperIfPresent();
+        if (authState === "logged-out") {
+          watchForLogin();
+        }
+        return;
+      }
+
+      stopAuthObserver();
+
+      if (isOAuthCallback()) {
+        await sleep(1500);
+      }
+
+      const apiInfos = await fetchApiInfos();
+
+      if (!hasNaturalisationData(apiInfos)) {
+        removeStepperIfPresent();
+        return;
+      }
+
+      showStepperIfReady(apiInfos, true);
+
+      enrichApiInfos(apiInfos)
+        .then((enriched) => {
+          logApiInfos(enriched);
+          showStepperIfReady(enriched, true);
+          addSeriesVisibilityToggle();
+          addFiscalStampVisibilityToggle();
+        })
+        .catch((error) => {
+          console.warn(
+            "Extension API Naturalisation : enrichissement partiel:",
+            error
+          );
+          logApiInfos(apiInfos);
+        });
+    } catch (error) {
+      console.error(
+        "Extension API Naturalisation : erreur inattendue:",
+        error
+      );
+      removeStepperIfPresent();
+    } finally {
+      bootstrapRunning = false;
+    }
+  }
+
+  function scheduleBootstrap(delayMs = 0) {
+    clearTimeout(bootstrapTimer);
+    bootstrapTimer = setTimeout(() => {
+      bootstrap();
+    }, delayMs);
+  }
+
+  scheduleBootstrap();
+
+  window.addEventListener("hashchange", () => {
+    if (isOAuthCallback()) return;
+    scheduleBootstrap(1500);
+  });
 })();
