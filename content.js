@@ -86,7 +86,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.6.1";
+  const extensionVersion = "3.6.2";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -133,6 +133,12 @@
   if (!window.location.href.includes(CONFIG.URL_PATTERN)) return;
 
   function getStatusDescription(status) {
+    const info = STATUTS[status];
+    if (info) {
+      const prefix = getStatusGroupLabel(info.etape);
+      return prefix ? `${prefix} : ${info.explication}` : info.explication;
+    }
+
     const statusMap = {
         // 0 Brouillon
         draft: "Dossier en brouillon",
@@ -432,12 +438,15 @@
           (index <= currentIndex ? dateStatut : null)
         );
       case "demande_deposee":
+      case "dossier_depose":
         return resolveDemandeDeposeeRawDate(apiInfos, index, currentIndex);
       case "recepisse_completude":
         return recepisseCreated;
       case "entretien_assimilation":
         return assimilationDate;
       case "decision_prise":
+      case "decret_naturalisation_publie":
+      case "inseree_dans_decret":
         return decretDate || (decretId && index === currentIndex ? dateStatut : null);
       case "ceremonie_naturalisation":
         return index === currentIndex ? dateStatut : null;
@@ -661,38 +670,610 @@
     console.groupEnd();
   }
 
-  const RECREATED_TRACKING_STEPS = [
-    { key: "demande_envoyee", title: "Demande envoyée" },
-    { key: "examen_pieces", title: "Examen des pièces en cours" },
-    { key: "demande_deposee", title: "Demande déposée" },
-    { key: "traitement_plateforme_1", title: "Traitement en cours (Plateforme)" },
-    { key: "recepisse_completude", title: "Réception du récépissé de complétude" },
-    { key: "traitement_plateforme_2", title: "Traitement en cours (Plateforme)" },
-    { key: "entretien_assimilation", title: "Entretien d'assimilation" },
-    { key: "traitement_plateforme_3", title: "Traitement en cours (Plateforme)" },
-    { key: "traitement_sdanf_1", title: "Traitement en cours (SDANF)" },
-    { key: "traitement_scec", title: "Traitement en cours (SCEC)" },
-    { key: "traitement_sdanf_2", title: "Traitement en cours (SDANF)" },
-    { key: "decision_prise", title: "Décision prise" },
-    { key: "ceremonie_naturalisation", title: "Cérémonie de naturalisation" },
+const STATUTS = {
+    // ── Étape 1 : Brouillon ──────────────────────────────────────
+    "draft": {
+      phase: "Brouillon",
+      explication: "Dossier en brouillon",
+      etape: 1,
+      rang: 100,
+      description: "Votre dossier est en cours de préparation sur la plateforme ANEF. Complétez toutes les sections et joignez les pièces justificatives avant de soumettre.",
+      icon: "📝"
+    },
+  
+    // ── Étape 2 : Dépôt du dossier ───────────────────────────────
+    "dossier_depose": {
+      phase: "Dépôt",
+      explication: "Dossier déposé",
+      etape: 2,
+      rang: 200,
+      description: "Votre dossier a été soumis avec succès. Il est dans la file d'attente de la préfecture pour un premier examen de recevabilité.",
+      icon: "📨"
+    },
+  
+    // ── Étape 3 : Vérification formelle ──────────────────────────
+    "verification_formelle_a_traiter": {
+      phase: "Vérification formelle",
+      explication: "Dossier reçu, en tri",
+      etape: 3,
+      rang: 301,
+      description: "La préfecture a bien reçu votre demande. Elle est placée en file d'attente pour le premier tri administratif : vérification des pièces obligatoires et conditions de base.",
+      icon: "🔍"
+    },
+    "verification_formelle_en_cours": {
+      phase: "Vérification formelle",
+      explication: "Tri en cours",
+      etape: 3,
+      rang: 302,
+      description: "Un agent vérifie l'admissibilité formelle de votre dossier : présence des documents requis, validité des pièces, conditions légales. Des compléments peuvent être demandés.",
+      icon: "🔍"
+    },
+    "verification_formelle_mise_en_demeure": {
+      phase: "Vérification formelle",
+      explication: "Mise en demeure, pièces à fournir",
+      etape: 3,
+      rang: 303,
+      description: "Des documents obligatoires sont manquants ou non conformes. Vous allez recevoir un courrier détaillant les pièces à fournir. Répondez dans le délai imparti pour éviter un classement sans suite.",
+      icon: "⚠️"
+    },
+    "css_mise_en_demeure_a_affecter": {
+      phase: "Vérification formelle",
+      explication: "Classement sans suite en cours",
+      etape: 3,
+      rang: 304,
+      description: "Suite à la mise en demeure restée sans réponse, un classement sans suite est en cours d'affectation à un agent. Fournissez les pièces manquantes au plus vite.",
+      icon: "⚠️"
+    },
+    "css_mise_en_demeure_a_rediger": {
+      phase: "Vérification formelle",
+      explication: "Classement sans suite en rédaction",
+      etape: 3,
+      rang: 305,
+      description: "Le classement sans suite de votre dossier est en cours de rédaction suite à l'absence de réponse à la mise en demeure. Contactez votre préfecture si vous avez transmis les pièces.",
+      icon: "⚠️"
+    },
+  
+    // ── Étape 4 : Affectation instructeur ────────────────────────
+    "instruction_a_affecter": {
+      phase: "Affectation",
+      explication: "Dossier recevable, attente d'affectation",
+      etape: 4,
+      rang: 400,
+      description: "Votre dossier a passé la vérification formelle avec succès ! Il est déclaré recevable et attend d'être attribué à un agent instructeur pour un examen approfondi. Vous recevrez un récépissé de dépôt.",
+      icon: "👤"
+    },
+  
+    // ── Étape 5 : Instruction du dossier ─────────────────────────
+    "instruction_recepisse_completude_a_envoyer": {
+      phase: "Instruction",
+      explication: "Dossier complet, examen approfondi",
+      etape: 5,
+      rang: 501,
+      description: "Un agent instructeur examine en détail votre dossier : situation personnelle, professionnelle, fiscale, assimilation. Le récépissé de complétude sera envoyé. Il peut vous convoquer pour l'entretien.",
+      icon: "📖"
+    },
+    "instruction_recepisse_completude_a_envoyer_retour_complement_a_traiter": {
+      phase: "Instruction",
+      explication: "Compléments reçus, à vérifier",
+      etape: 5,
+      rang: 502,
+      description: "Vous avez fourni des documents complémentaires suite à une demande de l'instructeur. L'agent vérifie leur conformité avant de poursuivre l'instruction de votre dossier.",
+      icon: "📋"
+    },
+    "css_manuels_a_affecter": {
+      phase: "Classement sans suite",
+      explication: "Proposition de CSS manuel, à affecter",
+      etape: 5,
+      rang: 503,
+      description: "Un agent a proposé un classement sans suite de votre dossier (réponse à un complément jugée insuffisante, désistement présumé, ou autre motif). La proposition attend d'être affectée à un agent pour rédaction. Ce n'est pas encore une décision notifiée : contactez rapidement votre préfecture pour fournir les pièces manquantes ou clarifier votre situation.",
+      icon: "⚠️"
+    },
+    "css_manuels_a_rediger": {
+      phase: "Classement sans suite",
+      explication: "CSS manuel, rédaction en cours",
+      etape: 5,
+      rang: 504,
+      description: "La proposition de classement sans suite manuel est en cours de rédaction par un agent. Ce n'est pas encore une décision notifiée : contactez rapidement votre préfecture si vous avez transmis les pièces demandées.",
+      icon: "⚠️"
+    },
+    "css_automatiques_a_affecter": {
+      phase: "Classement sans suite",
+      explication: "Proposition de CSS automatique, à affecter",
+      etape: 5,
+      rang: 505,
+      description: "Le système a automatiquement proposé un classement sans suite (absence de réponse dans les délais impartis). La proposition attend d'être affectée à un agent pour rédaction. Contactez rapidement votre préfecture pour fournir les pièces manquantes.",
+      icon: "⚠️"
+    },
+    "css_automatiques_a_rediger": {
+      phase: "Classement sans suite",
+      explication: "CSS automatique, rédaction en cours",
+      etape: 5,
+      rang: 506,
+      description: "Un classement sans suite automatique (déclenché par le système) est en cours de rédaction. Contactez rapidement votre préfecture si vous avez transmis les pièces demandées.",
+      icon: "⚠️"
+    },
+  
+    // ── Étape 6 : Complétude & enquêtes ──────────────────────────
+    "instruction_date_ea_a_fixer": {
+      phase: "Complétude & enquêtes",
+      explication: "Enquêtes administratives lancées",
+      etape: 6,
+      rang: 601,
+      description: "Votre dossier est officiellement complet ! Les enquêtes administratives obligatoires sont lancées (casier judiciaire, renseignements, fichiers). La date d'entretien d'assimilation sera fixée prochainement.",
+      icon: "🔎"
+    },
+    "ea_demande_report_ea": {
+      phase: "Complétude & enquêtes",
+      explication: "Demande de report d'entretien",
+      etape: 6,
+      rang: 602,
+      description: "Une demande de report de l'entretien d'assimilation a été enregistrée. La préfecture vous proposera une nouvelle date. Attention aux délais pour ne pas retarder votre dossier.",
+      icon: "🔄"
+    },
+  
+    // ── Étape 7 : Entretien d'assimilation ───────────────────────
+    "ea_en_attente_ea": {
+      phase: "Entretien d'assimilation",
+      explication: "Convocation envoyée, en attente",
+      etape: 7,
+      rang: 701,
+      description: "Votre convocation à l'entretien d'assimilation est envoyée ou disponible. Préparez-vous : questions sur la France (histoire, culture, valeurs républicaines), votre parcours et vos motivations.",
+      icon: "📬"
+    },
+    "ea_crea_a_valider": {
+      phase: "Entretien d'assimilation",
+      explication: "Entretien passé, compte-rendu en rédaction",
+      etape: 7,
+      rang: 702,
+      description: "Vous avez passé l'entretien d'assimilation ! L'agent rédige le compte-rendu évaluant votre niveau de langue, connaissance de la France et assimilation à la communauté française.",
+      icon: "✅"
+    },
+  
+    // ── Étape 8 : Décision préfecture ────────────────────────────
+    "prop_decision_pref_a_effectuer": {
+      phase: "Décision préfecture",
+      explication: "Avis préfectoral en cours",
+      etape: 8,
+      rang: 801,
+      description: "L'agent instructeur analyse l'ensemble de votre dossier (enquêtes, entretien, pièces) pour formuler sa proposition d'avis : favorable, défavorable ou ajournement.",
+      icon: "⚖️"
+    },
+    "prop_decision_pref_en_attente_retour_hierarchique": {
+      phase: "Décision préfecture",
+      explication: "Validation hiérarchique en cours",
+      etape: 8,
+      rang: 802,
+      description: "La proposition de l'agent est soumise à sa hiérarchie pour validation. Cette étape permet de confirmer l'avis avant transmission au préfet. Durée variable selon les préfectures.",
+      icon: "👔"
+    },
+    "prop_decision_pref_prop_a_editer": {
+      phase: "Décision préfecture",
+      explication: "Rédaction de la proposition",
+      etape: 8,
+      rang: 803,
+      description: "L'avis est validé et le document officiel de proposition est en cours de rédaction. Il résume votre situation et la recommandation de la préfecture au ministère.",
+      icon: "📝"
+    },
+    "prop_decision_pref_en_attente_retour_signataire": {
+      phase: "Décision préfecture",
+      explication: "Attente signature du préfet",
+      etape: 8,
+      rang: 804,
+      description: "Le document de proposition est finalisé et transmis au préfet (ou son représentant) pour signature. Une fois signé, votre dossier sera envoyé au ministère de l'Intérieur (SDANF).",
+      icon: "✍️"
+    },
+  
+    // ── Étape 9 : Contrôle SDANF ────────────────────────────────
+    "controle_a_affecter": {
+      phase: "Contrôle SDANF",
+      explication: "Arrivé à la SDANF, attente affectation",
+      etape: 9,
+      rang: 901,
+      description: "Votre dossier est arrivé à la Sous-Direction de l'Accès à la Nationalité Française (SDANF) à Rezé (44). Il attend d'être attribué à un agent pour le contrôle ministériel.",
+      icon: "🏛️"
+    },
+    "controle_a_effectuer": {
+      phase: "Contrôle SDANF",
+      explication: "Contrôle ministériel en cours",
+      etape: 9,
+      rang: 902,
+      description: "Un agent de la SDANF contrôle votre dossier : vérification des pièces d'état civil, cohérence des informations, respect des conditions légales. Cette étape peut prendre plusieurs semaines.",
+      icon: "📑"
+    },
+    // ── Étape 10 : Contrôle SCEC ────────────────────────────────
+    "controle_en_attente_pec": {
+      phase: "Contrôle SCEC",
+      explication: "Transmis au SCEC de Nantes",
+      etape: 10,
+      rang: 1001,
+      description: "Le Service Central d'État Civil (SCEC) de Nantes vérifie l'authenticité de vos actes d'état civil étrangers. Cette vérification est obligatoire pour valider votre identité.",
+      icon: "🏛️"
+    },
+    "controle_pec_a_faire": {
+      phase: "Contrôle SCEC",
+      explication: "Vérification d'état civil en cours",
+      etape: 10,
+      rang: 1002,
+      description: "Le SCEC procède à la vérification de vos pièces d'état civil. Une fois validées, vos actes seront transcrits dans les registres français si votre naturalisation aboutit.",
+      icon: "✔️"
+    },
+  
+    // ── Étape 11 : Préparation décret ────────────────────────────
+    "controle_transmise_pour_decret": {
+      phase: "Préparation décret",
+      explication: "Avis FAVORABLE, transmis pour décret",
+      etape: 11,
+      rang: 1101,
+      description: "Excellente nouvelle ! L'avis est FAVORABLE. Votre dossier est transmis au service des décrets pour être inclus dans un prochain décret de naturalisation. La fin approche !",
+      icon: "🎉"
+    },
+    "controle_en_attente_retour_hierarchique": {
+      phase: "Préparation décret",
+      explication: "Validation hiérarchique ministérielle",
+      etape: 11,
+      rang: 1102,
+      description: "Le projet de décret incluant votre demande est soumis à la validation de la hiérarchie ministérielle. Étape administrative normale avant la finalisation du décret.",
+      icon: "👔"
+    },
+    "controle_decision_a_editer": {
+      phase: "Préparation décret",
+      explication: "Décision favorable, édition en cours",
+      etape: 11,
+      rang: 1103,
+      description: "La décision favorable est confirmée. Le document officiel du décret incluant votre nom est en cours d'édition. Vous serez bientôt inscrit(e) dans un décret de naturalisation.",
+      icon: "📄"
+    },
+    "controle_en_attente_signature": {
+      phase: "Préparation décret",
+      explication: "Attente signature ministérielle",
+      etape: 11,
+      rang: 1104,
+      description: "Le décret de naturalisation est finalisé et attend la signature du ministre ou de son représentant. Une fois signé, il sera publié au Journal Officiel.",
+      icon: "✍️"
+    },
+    "transmis_a_ac": {
+      phase: "Préparation décret",
+      explication: "Transmis à l'administration centrale",
+      etape: 11,
+      rang: 1105,
+      description: "Votre dossier favorable est transmis à l'administration centrale chargée de préparer les décrets. Vous êtes dans la dernière ligne droite de la procédure !",
+      icon: "📬"
+    },
+    "a_verifier_avant_insertion_decret": {
+      phase: "Préparation décret",
+      explication: "Vérifications finales avant insertion",
+      etape: 11,
+      rang: 1106,
+      description: "Dernières vérifications administratives aléatoires et facultatives avant l'insertion de votre nom dans un décret. On s'assure qu'aucun élément nouveau ne s'oppose à votre naturalisation.",
+      icon: "🔎"
+    },
+    "prete_pour_insertion_decret": {
+      phase: "Préparation décret",
+      explication: "Validé, prêt pour insertion au décret",
+      etape: 11,
+      rang: 1107,
+      description: "Votre dossier est validé et prêt pour être inséré dans le prochain décret de naturalisation. La décision favorable a été signée par le Ministre !",
+      icon: "✅"
+    },
+    "decret_en_preparation": {
+      phase: "Préparation décret",
+      explication: "Décret en cours de préparation",
+      etape: 11,
+      rang: 1108,
+      description: "Un décret de naturalisation incluant votre nom est en cours de préparation. Plusieurs dossiers sont regroupés dans chaque décret avant publication au Journal Officiel.",
+      icon: "📋"
+    },
+    "decret_a_qualifier": {
+      phase: "Préparation décret",
+      explication: "Décret en cours de qualification",
+      etape: 11,
+      rang: 1109,
+      description: "Le décret incluant votre nom est en phase de qualification : catégorisation et vérification du type de décret (naturalisation, réintégration, etc.) avant validation finale.",
+      icon: "📋"
+    },
+    "decret_en_validation": {
+      phase: "Préparation décret",
+      explication: "Décret en validation finale",
+      etape: 11,
+      rang: 1110,
+      description: "Le décret de naturalisation est en cours de validation finale par les services compétents. Dernière étape administrative avant la signature et la publication.",
+      icon: "📋"
+    },
+  
+    // ── Étape 12 : Publication JO ────────────────────────────────
+    "inseree_dans_decret": {
+      phase: "Publication JO",
+      explication: "Inséré dans un décret signé",
+      etape: 12,
+      rang: 1201,
+      description: "Votre nom est officiellement inscrit dans un décret de naturalisation ! Il attend maintenant la publication au Journal Officiel de la République Française.",
+      icon: "🎉"
+    },
+    "decret_envoye_prefecture": {
+      phase: "Publication JO",
+      explication: "Décret envoyé à votre préfecture",
+      etape: 12,
+      rang: 1202,
+      description: "Le décret signé a été transmis à votre préfecture. Elle va vous convoquer pour la cérémonie d'accueil dans la citoyenneté française et la remise de votre décret.",
+      icon: "📨"
+    },
+    "notification_envoyee": {
+      phase: "Publication JO",
+      explication: "Notification officielle envoyée",
+      etape: 12,
+      rang: 1203,
+      description: "La notification officielle de votre naturalisation vous a été envoyée. Vous serez convoqué(e) à la cérémonie d'accueil dans la citoyenneté française.",
+      icon: "📬"
+    },
+  
+    // ── Étape 13 : Décision finale ───────────────────────────────
+    // Décisions positives
+    "decret_naturalisation_publie": {
+      phase: "NATURALISÉ(E)",
+      explication: "Décret publié au Journal Officiel",
+      etape: 13,
+      rang: 1301,
+      description: "FÉLICITATIONS ! Votre décret de naturalisation est publié au Journal Officiel de la République Française. Vous êtes officiellement citoyen(ne) français(e) !",
+      icon: "🇫🇷"
+    },
+    "decret_naturalisation_publie_jo": {
+      phase: "NATURALISÉ(E)",
+      explication: "Décret publié au Journal Officiel",
+      etape: 13,
+      rang: 1302,
+      description: "FÉLICITATIONS ! Votre décret de naturalisation est publié au Journal Officiel. Vous êtes officiellement français(e) ! La préfecture vous convoquera pour la cérémonie.",
+      icon: "🇫🇷"
+    },
+    "decret_publie": {
+      phase: "NATURALISÉ(E)",
+      explication: "Décret publié",
+      etape: 13,
+      rang: 1303,
+      description: "FÉLICITATIONS ! Votre décret de naturalisation est publié. Vous êtes officiellement citoyen(ne) français(e) ! La préfecture vous convoquera pour la cérémonie d'accueil.",
+      icon: "🇫🇷"
+    },
+    "demande_traitee": {
+      phase: "Finalisé",
+      explication: "Demande entièrement traitée",
+      etape: 13,
+      rang: 1304,
+      description: "Votre demande de naturalisation a été entièrement traitée. Consultez vos courriers ou contactez votre préfecture pour connaître l'issue de votre dossier.",
+      icon: "✅"
+    },
+    // Décisions négatives
+    "decision_negative_en_delais_recours": {
+      phase: "Décision négative",
+      explication: "Défavorable, délai de recours ouvert",
+      etape: 13,
+      rang: 1305,
+      description: "Votre demande a reçu une décision défavorable. Vous disposez d'un délai de 2 mois pour former un recours gracieux auprès du ministre (RAPO) ou un recours contentieux devant le tribunal administratif.",
+      icon: "❌"
+    },
+    "decision_notifiee": {
+      phase: "Décision négative",
+      explication: "Décision notifiée au demandeur",
+      etape: 13,
+      rang: 1306,
+      description: "La décision concernant votre dossier vous a été officiellement notifiée. Consultez le courrier pour connaître la nature de la décision et les voies de recours disponibles.",
+      icon: "❌"
+    },
+    "demande_en_cours_rapo": {
+      phase: "Recours RAPO",
+      explication: "Recours administratif en cours",
+      etape: 13,
+      rang: 1307,
+      description: "Votre recours administratif préalable obligatoire (RAPO) est en cours d'examen par le ministère. Le RAPO est un recours gracieux contre une décision défavorable. Délai de réponse : environ 4 mois.",
+      icon: "⚖️"
+    },
+    "controle_demande_notifiee": {
+      phase: "Décision notifiée",
+      explication: "Décision de contrôle notifiée",
+      etape: 13,
+      rang: 1308,
+      description: "La décision issue du contrôle ministériel vous a été officiellement communiquée. Vérifiez vos courriers pour connaître la suite donnée à votre dossier.",
+      icon: "📬"
+    },
+    // Irrecevabilité
+    "irrecevabilite_manifeste": {
+      phase: "Irrecevabilité",
+      explication: "Conditions légales non remplies",
+      etape: 13,
+      rang: 1309,
+      description: "Votre demande ne remplit pas les conditions légales de recevabilité (durée de résidence, titre de séjour, etc.). Vérifiez les critères d'éligibilité avant de déposer une nouvelle demande.",
+      icon: "❌"
+    },
+    "irrecevabilite_manifeste_en_delais_recours": {
+      phase: "Irrecevabilité",
+      explication: "Irrecevable, délai de recours ouvert",
+      etape: 13,
+      rang: 1310,
+      description: "Votre demande a été déclarée irrecevable. Vous pouvez contester cette décision par un recours gracieux (RAPO) ou contentieux dans un délai de 2 mois.",
+      icon: "❌"
+    },
+    // Classement sans suite
+    "css_en_delais_recours": {
+      phase: "Classement sans suite",
+      explication: "Classé sans suite, recours possible",
+      etape: 13,
+      rang: 1311,
+      description: "Votre dossier a été classé sans suite (pièces non fournies dans les délais, désistement, etc.). Vous pouvez former un recours ou déposer une nouvelle demande complète.",
+      icon: "⚠️"
+    },
+    "css_notifie": {
+      phase: "Classement sans suite",
+      explication: "Classement sans suite notifié",
+      etape: 13,
+      rang: 1312,
+      description: "Le classement sans suite de votre dossier vous a été officiellement notifié. Analysez les motifs indiqués avant d'envisager une nouvelle demande.",
+      icon: "⚠️"
+    }
+  };
+
+  const STEP_GROUPS = [
+    {
+      key: "prefecture",
+      label: "Préfecture",
+      subtitle: "Dépôt, instruction, entretien et décision préfectorale",
+      etapes: [2, 3, 4, 5, 6, 7, 8],
+    },
+    {
+      key: "sdanf",
+      label: "SDANF",
+      subtitle: "Contrôle ministériel à Rezé",
+      etapes: [9],
+    },
+    {
+      key: "scec",
+      label: "SCEC",
+      subtitle: "Validation des pièces d'état civil à Nantes",
+      etapes: [10],
+    },
+    {
+      key: "decret",
+      label: "Préparation décret",
+      subtitle: "Avis favorable, validation et insertion au décret",
+      etapes: [11],
+    },
+    {
+      key: "publication",
+      label: "Publication JO",
+      subtitle: "Insertion, notification et envoi préfecture",
+      etapes: [12],
+    },
+    {
+      key: "final",
+      label: "Décision finale",
+      subtitle: "Naturalisation, refus, recours ou classement sans suite",
+      etapes: [13],
+    },
   ];
 
+  function buildTrackingSteps() {
+    const prefecture = [
+      { key: "demande_envoyee", code: "draft", group: "prefecture", etape: 1, sub: "1", title: "Demande envoyée" },
+      { key: "dossier_depose", code: "dossier_depose", group: "prefecture", etape: 2, sub: "2", title: "Dépôt du dossier", locked: true },
+      { key: "examen_pieces", code: "verification_formelle_a_traiter", group: "prefecture", etape: 3, sub: "3", title: "Examen des pièces en cours" },
+      { key: "traitement_plateforme_1", group: "prefecture", etape: 4, title: "Traitement en cours (Plateforme)", platform: true },
+      { key: "recepisse_completude", code: "instruction_recepisse_completude_a_envoyer", group: "prefecture", etape: 5, sub: "5", title: "Réception du récépissé de complétude" },
+      { key: "traitement_plateforme_2", group: "prefecture", etape: 6, title: "Traitement en cours (Plateforme)", platform: true },
+      { key: "entretien_assimilation", code: "ea_en_attente_ea", group: "prefecture", etape: 7, sub: "7", title: "Entretien d'assimilation", locked: true },
+      { key: "traitement_plateforme_3", group: "prefecture", etape: 8, title: "Traitement en cours (Plateforme)", platform: true },
+      { key: "decision_prefecture", code: "prop_decision_pref_a_effectuer", group: "prefecture", etape: 8, sub: "8", title: "Décision préfecture" },
+    ];
+    const ministry = [
+      { key: "traitement_sdanf_1", code: "controle_a_affecter", group: "sdanf", milestone: true, title: "Traitement en cours (SDANF)" },
+      { key: "controle_a_effectuer", code: "controle_a_effectuer", group: "sdanf", title: "SDANF — Contrôle en cours" },
+      { key: "traitement_scec", code: "controle_en_attente_pec", group: "scec", milestone: true, title: "Traitement en cours (SCEC)" },
+      { key: "controle_pec_a_faire", code: "controle_pec_a_faire", group: "scec", title: "SCEC — Vérification en cours" },
+      { key: "traitement_sdanf_2", code: "controle_transmise_pour_decret", group: "decret", milestone: true, title: "Traitement en cours (SDANF)" },
+      { key: "controle_en_attente_retour_hierarchique", code: "controle_en_attente_retour_hierarchique", group: "decret", title: "Validation hiérarchique ministérielle" },
+      { key: "controle_decision_a_editer", code: "controle_decision_a_editer", group: "decret", title: "Décision favorable, édition en cours" },
+      { key: "controle_en_attente_signature", code: "controle_en_attente_signature", group: "decret", title: "Attente signature ministérielle" },
+      { key: "transmis_a_ac", code: "transmis_a_ac", group: "decret", title: "Transmis à l'administration centrale" },
+      { key: "a_verifier_avant_insertion_decret", code: "a_verifier_avant_insertion_decret", group: "decret", title: "Vérifications finales avant insertion" },
+      { key: "prete_pour_insertion_decret", code: "prete_pour_insertion_decret", group: "decret", title: "PPID — Prêt pour insertion décret" },
+      { key: "decret_en_preparation", code: "decret_en_preparation", group: "decret", title: "Décret en cours de préparation" },
+      { key: "decret_a_qualifier", code: "decret_a_qualifier", group: "decret", title: "Décret en cours de qualification" },
+      { key: "decret_en_validation", code: "decret_en_validation", group: "decret", title: "Décret en validation finale" },
+      { key: "decision_prise", code: "inseree_dans_decret", group: "publication", milestone: true, title: "Décision prise" },
+      { key: "decret_envoye_prefecture", code: "decret_envoye_prefecture", group: "publication", title: "Décret envoyé à la préfecture" },
+      { key: "notification_envoyee", code: "notification_envoyee", group: "publication", title: "Notification officielle envoyée" },
+      { key: "ceremonie_naturalisation", code: "decret_naturalisation_publie", group: "final", milestone: true, title: "Cérémonie de naturalisation" },
+    ];
+    return [...prefecture, ...ministry];
+  }
+
+  function getStatusGroupLabel(etape) {
+    const labels = {
+      prefecture: "Préfecture",
+      sdanf: "SDANF",
+      scec: "SCEC",
+      decret: "Décret",
+      publication: "Décret",
+      final: "Décision",
+    };
+    const group = STEP_GROUPS.find((entry) => entry.etapes.includes(etape));
+    return group ? labels[group.key] || group.label : null;
+  }
+
+  function inferTrackingIndex(statusCode) {
+    const code = String(statusCode || "").trim().toLowerCase();
+    if (!code || code === "-" || code === "code_non_reconnu") return 0;
+
+    const info = STATUTS[code];
+    if (!info) {
+      if (code.startsWith("scec_") || code === "non_applicable") {
+        return TRACKING_STEPS.findIndex((step) => step.code === "controle_en_attente_pec");
+      }
+      return 1;
+    }
+
+    let bestIndex = 0;
+    TRACKING_STEPS.forEach((step, index) => {
+      const stepInfo = step.code ? STATUTS[step.code] : null;
+      if (stepInfo && stepInfo.rang <= info.rang) {
+        bestIndex = index;
+        return;
+      }
+      if (!stepInfo && step.etape && step.etape <= info.etape) {
+        bestIndex = index;
+      }
+    });
+    return bestIndex;
+  }
+
+  function getNextMilestoneIndex(steps, milestoneIndex) {
+    for (let i = milestoneIndex + 1; i < steps.length; i++) {
+      if (steps[i].milestone) return i;
+    }
+    return steps.length;
+  }
+
+  function getMilestoneState(milestoneIndex, currentIndex, steps) {
+    const nextMilestone = getNextMilestoneIndex(steps, milestoneIndex);
+    if (currentIndex >= nextMilestone) return "done";
+    if (currentIndex >= milestoneIndex) return "current";
+    return "pending";
+  }
+
+  function formatTrackingStepTitle(step) {
+    return step.title;
+  }
+
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function getStatusLongDescription(statusCode) {
+    const code = String(statusCode || "").trim().toLowerCase();
+    return STATUTS[code]?.description || "";
+  }
+
+  const TRACKING_STEPS = buildTrackingSteps();
+
+  const prefectureEndIndex = TRACKING_STEPS.findLastIndex((step) => step.group === "prefecture");
   const MACRO_PHASES = [
     {
       key: "prefecture",
-      title: "Préfecture",
-      subtitle: "Dépôt, examen des pièces, entretien et instruction préfectorale",
+      title: STEP_GROUPS.find((group) => group.key === "prefecture").label,
+      subtitle: STEP_GROUPS.find((group) => group.key === "prefecture").subtitle,
       startIndex: 0,
-      endIndex: 7,
+      endIndex: prefectureEndIndex,
     },
     {
-      key: "sdanf_scec",
+      key: "ministere",
       title: "SDANF & SCEC",
-      subtitle: "Contrôles SDANF, validation SCEC, décret et cérémonie",
-      startIndex: 8,
-      endIndex: 12,
+      subtitle: "Contrôles SDANF, validation SCEC, décret et publication",
+      startIndex: prefectureEndIndex + 1,
+      endIndex: TRACKING_STEPS.length - 1,
     },
   ];
+
+
 
   const MACRO_STATUS_ICONS = {
     done: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m8 12.5 2.5 2.5L16 9.5"></path></svg>`,
@@ -726,16 +1307,21 @@
     return icon;
   }
 
-  function getStepState(index, currentIndex) {
+  function getStepState(step, index, currentIndex) {
+    if (step.milestone) {
+      return getMilestoneState(index, currentIndex, TRACKING_STEPS);
+    }
     if (index < currentIndex) return "done";
     if (index === currentIndex) return "current";
     return "pending";
   }
 
-  function shouldShowStepInStepper(step, index, currentIndex) {
-    return !(
-      step.key.startsWith("traitement_plateforme") && index < currentIndex
-    );
+  function shouldShowStepInStepper(step, index, currentIndex, phase) {
+    if (step.platform && index < currentIndex) return false;
+    if (phase.key === "ministere" && !step.milestone && index !== currentIndex) {
+      return false;
+    }
+    return true;
   }
 
   function buildTrackStepItem(step, index, currentIndex, apiInfos, railMeta = {}) {
@@ -746,7 +1332,7 @@
       lineOutDone = false,
       lineInDuration = null,
     } = railMeta;
-    const state = getStepState(index, currentIndex);
+    const state = getStepState(step, index, currentIndex);
     const item = document.createElement("div");
     item.className = `anf-track-step is-${state}`;
     item.setAttribute("role", "listitem");
@@ -763,7 +1349,7 @@
 
     const node = document.createElement("span");
     node.className = "anf-step-node";
-    node.appendChild(createStepIcon(step.key));
+    node.appendChild(createStepIcon(step));
 
     const lineOut = document.createElement("span");
     lineOut.className = "anf-step-line anf-step-line--out";
@@ -787,7 +1373,7 @@
 
     const title = document.createElement("p");
     title.className = "anf-track-step-title";
-    title.textContent = step.title;
+    title.textContent = formatTrackingStepTitle(step);
     copy.appendChild(title);
 
     item.appendChild(track);
@@ -833,14 +1419,14 @@
     stepper.setAttribute("role", "list");
     stepper.setAttribute("aria-label", `Étapes ${phase.title}`);
 
-    const phaseSteps = RECREATED_TRACKING_STEPS.slice(
+    const phaseSteps = TRACKING_STEPS.slice(
       phase.startIndex,
       phase.endIndex + 1
     );
     const visibleSteps = phaseSteps
       .map((step, offset) => ({ step, index: phase.startIndex + offset }))
       .filter(({ step, index }) =>
-        shouldShowStepInStepper(step, index, currentIndex)
+        shouldShowStepInStepper(step, index, currentIndex, phase)
       );
 
     visibleSteps.forEach(({ step, index }, visibleOffset) => {
@@ -876,26 +1462,39 @@
     return block;
   }
 
-  function createStepIcon(stepKey) {
+  function createStepIcon(step) {
+    const stepKey = step.key;
     const iconByStep = {
       demande_envoyee: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7Z"></path></svg>`,
       examen_pieces: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-9 9 8.7 8.7 0 0 1-6-2.4"></path><path d="M3 12a9 9 0 0 1 15-6.7"></path><path d="M18 3v5h-5"></path><path d="M6 21v-5h5"></path></svg>`,
       demande_deposee: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v1"></path><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7H3"></path></svg>`,
+      dossier_depose: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v1"></path><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7H3"></path></svg>`,
       traitement_plateforme_1: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path><path d="M15 5l4 4"></path></svg>`,
       recepisse_completude: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h6"></path></svg>`,
       traitement_plateforme_2: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path><path d="M15 5l4 4"></path></svg>`,
       entretien_assimilation: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"></path><path d="M8 9h8"></path><path d="M8 13h5"></path></svg>`,
       traitement_plateforme_3: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path><path d="M15 5l4 4"></path></svg>`,
+      decision_prefecture: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="m16 8 4 4-4 4"></path></svg>`,
       traitement_sdanf_1: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="m16 8 4 4-4 4"></path></svg>`,
       traitement_scec: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>`,
       traitement_sdanf_2: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="m16 8 4 4-4 4"></path></svg>`,
       decision_prise: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2Z"></path><path d="m22 6-10 7L2 6"></path></svg>`,
       ceremonie_naturalisation: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8.5" cy="10" r="2"></circle><path d="M6 16c.7-1.4 1.5-2 2.5-2s1.8.6 2.5 2"></path><path d="M14 9h4"></path><path d="M14 13h4"></path><path d="M14 17h3"></path></svg>`,
     };
+    const iconByGroup = {
+      sdanf: "traitement_sdanf_1",
+      scec: "traitement_scec",
+      decret: "traitement_sdanf_2",
+      publication: "decision_prise",
+      final: "ceremonie_naturalisation",
+    };
 
     const icon = document.createElement("span");
     icon.className = "anf-track-step-icon";
-    icon.innerHTML = iconByStep[stepKey] || iconByStep.traitement_plateforme_1;
+    icon.innerHTML =
+      iconByStep[stepKey] ||
+      iconByStep[iconByGroup[step.group]] ||
+      iconByStep.traitement_plateforme_1;
     return icon;
   }
 
@@ -912,54 +1511,6 @@
       ? VISIBILITY_ICON_SVG.hidden
       : VISIBILITY_ICON_SVG.visible;
     return icon;
-  }
-
-  function inferRecreatedTrackingIndex(statusCode) {
-    const code = String(statusCode || "").trim().toLowerCase();
-    if (!code || code === "-" || code === "code_non_reconnu") return 0;
-    if (code === "draft") return 0;
-    if (code === "dossier_depose") return 2;
-    if (code.startsWith("verification_")) return 1;
-    if (code.startsWith("instruction_recepisse")) return 4;
-    if (code === "instruction_date_ea_a_fixer") return 5;
-    if (code.startsWith("ea_") || code.includes("date_ea")) return 6;
-    if (code.startsWith("instruction_")) return 3;
-    if (code.startsWith("prop_decision_pref_")) return 7;
-    if (
-      code === "controle_a_affecter" ||
-      code === "controle_a_effectuer" ||
-      code === "controle_en_attente_retour_ministeriel" ||
-      code === "controle_en_attente_retour_prefecture"
-    ) {
-      return 8;
-    }
-    if (
-      code === "controle_en_attente_pec" ||
-      code === "controle_pec_a_faire" ||
-      code.startsWith("scec_") ||
-      code === "non_applicable"
-    ) {
-      return 9;
-    }
-    if (code.startsWith("controle_")) return 10;
-    if (
-      code.startsWith("decret_") ||
-      code === "transmis_a_ac" ||
-      code === "a_verifier_avant_insertion_decret" ||
-      code === "prete_pour_insertion_decret" ||
-      code === "inseree_dans_decret" ||
-      code === "decret_envoye_prefecture" ||
-      code === "notification_envoyee" ||
-      code === "demande_traitee" ||
-      code.startsWith("decision_") ||
-      code.startsWith("css_") ||
-      code.includes("irrecevabilite") ||
-      code === "demande_en_cours_rapo"
-    ) {
-      return 11;
-    }
-    if (code.includes("ceremonie") || code.includes("cérémonie")) return 12;
-    return 1;
   }
 
   function injectRecreatedStepperCss() {
@@ -1022,11 +1573,24 @@
       .anf-track-progress-meta {
         display: flex;
         justify-content: space-between;
-        align-items: center;
+        align-items: flex-start;
         gap: 8px;
         margin-bottom: 4px;
         color: var(--anf-muted);
         font-size: 10px;
+      }
+      .anf-track-progress-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        flex: 1;
+        min-width: 0;
+      }
+      .anf-track-progress-desc {
+        margin: 0;
+        color: var(--anf-ink);
+        font-size: 10px;
+        line-height: 1.4;
       }
       .anf-track-progress-meta strong {
         color: var(--anf-ink);
@@ -1523,8 +2087,10 @@
         variant: "date",
       });
     }
-    if (stepKey === "demande_deposee" && anchorRawDate) {
-      details.push({ text: formatDate(anchorRawDate), variant: "date" });
+    if (stepKey === "demande_deposee" || stepKey === "dossier_depose") {
+      if (anchorRawDate) {
+        details.push({ text: formatDate(anchorRawDate), variant: "date" });
+      }
     }
     if (stepKey === "recepisse_completude" && recepisseCreated) {
       details.push({ text: formatDate(recepisseCreated), variant: "date" });
@@ -1553,13 +2119,17 @@
         details.unshift({ text: statusDateLabel, variant: "date" });
       }
     }
-    if (isCurrent && !["decision_prise", "ceremonie_naturalisation"].includes(stepKey)) {
+    if (isCurrent && !["decret_naturalisation_publie", "ceremonie_naturalisation", "decision_prise"].includes(stepKey)) {
       details.push({ text: dossierStatus, variant: "status-card" });
       if (dateStatutRelative) {
         details.push({ text: `(${dateStatutRelative})`, variant: "status-time" });
       }
     }
-    if (stepKey === "decision_prise") {
+    if (
+      stepKey === "decret_naturalisation_publie" ||
+      stepKey === "ceremonie_naturalisation" ||
+      stepKey === "decision_prise"
+    ) {
       if (isCurrent) {
         details.push({ text: dossierStatus, variant: "status-card" });
         if (dateStatutRelative) {
@@ -1647,10 +2217,15 @@
 
     injectRecreatedStepperCss();
 
-    const inferredIndex = inferRecreatedTrackingIndex(apiInfos.statutCode);
+    const inferredIndex = inferTrackingIndex(apiInfos.statutCode);
+    const finalStepIndex = TRACKING_STEPS.findIndex(
+      (step) => step.code === "decret_naturalisation_publie" || step.key === "ceremonie_naturalisation"
+    );
     const currentIndex = Math.min(
-      RECREATED_TRACKING_STEPS.length - 1,
-      apiInfos.decretId ? Math.max(inferredIndex, 11) : inferredIndex
+      TRACKING_STEPS.length - 1,
+      apiInfos.decretId
+        ? Math.max(inferredIndex, finalStepIndex >= 0 ? finalStepIndex : TRACKING_STEPS.length - 1)
+        : inferredIndex
     );
 
     let root = document.getElementById("anf-extension-stepper-root");
@@ -1661,7 +2236,9 @@
     }
 
     const progressPct = getMacroProgressPct(currentIndex);
-    const currentStepTitle = RECREATED_TRACKING_STEPS[currentIndex]?.title || "";
+    const currentStep = TRACKING_STEPS[currentIndex];
+    const currentStepTitle = currentStep ? formatTrackingStepTitle(currentStep) : "";
+    const longDescription = getStatusLongDescription(apiInfos.statutCode);
     const currentPhase =
       MACRO_PHASES.find(
         (phase) =>
@@ -1675,7 +2252,11 @@
         </div>
         <div class="anf-track-progress-wrap">
           <div class="anf-track-progress-meta">
-            <span><strong>${currentPhase.title}</strong> · ${currentStepTitle}</span>
+            <div class="anf-track-progress-copy">
+              <span><strong>${currentPhase.title}</strong> · ${escapeHtml(currentStepTitle)}</span>
+                          ${longDescription ? `<p class="anf-track-progress-desc">${escapeHtml(longDescription)}</p>` : ""}
+
+              </div>
             <span>${progressPct}% · <span class="anf-stepper-version">v${extensionVersion}</span></span>
           </div>
           <div class="anf-track-progress" aria-hidden="true">
@@ -1726,7 +2307,7 @@
     });
 
     console.log(
-      `Extension API Naturalisation : stepper injecté (${currentIndex + 1}/${RECREATED_TRACKING_STEPS.length})`
+      `Extension API Naturalisation : stepper injecté (${currentIndex + 1}/${TRACKING_STEPS.length})`
     );
     return true;
   }
