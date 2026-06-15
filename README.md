@@ -25,8 +25,8 @@ AR : <a href="https://www.youtube.com/watch?v=vaitOnjyNFQ">https://www.youtube.c
 
 Et voilà, l'extension est installé et utilisable sur ton Chrome 🎉
 
-<img width="1296" height="448" alt="image" src="https://github.com/user-attachments/assets/128a2754-ded0-4abb-8e8e-ef61e9ebc57d" />
- 
+ <img width="1238" height="719" alt="image" src="https://github.com/user-attachments/assets/765a1518-9072-4182-ad56-58ab22a88200" />
+
 
 <h1>Solution altérnative : ANEF Status Tracker </h1>
 <a href="https://chromewebstore.google.com/detail/anef-status-tracker/icnpklneeaiffilemaflccdejefpehek">Installer depuis le Chrome Web Store</a> — installation en un clic, mises à jour automatiques <br/> (source : https://github.com/Letranger-dev/anef-extension)
