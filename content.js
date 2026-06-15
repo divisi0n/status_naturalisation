@@ -68,8 +68,8 @@
 
       if (!response.ok) {
         if (response.status === 401) {
-          console.warn(
-            "Extension API Naturalisation : API stepper 401 — session expirée"
+          console.log(
+            "Warning: Extension API Naturalisation — API stepper 401, session expirée"
           );
         }
         return null;
@@ -77,8 +77,8 @@
 
       return response;
     } catch (error) {
-      console.warn(
-        "Extension API Naturalisation : API stepper inaccessible:",
+      console.log(
+        "Warning: Extension API Naturalisation — API stepper inaccessible:",
         error
       );
       return null;
@@ -86,7 +86,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.3";
+  const extensionVersion = "3.6.1";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -125,7 +125,7 @@
       });
       return extractFormData(decryptedData);
     } catch (error) {
-      console.error("Erreur de décryptage :", error);
+      console.log("Error: Erreur de décryptage :", error);
       return null;
     }
   }
@@ -295,6 +295,169 @@
     return `${dd}/${mm}/${yyyy}`;
   }
 
+  function parseAnchorDate(dateString) {
+    if (!dateString) return null;
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  function formatDurationBetween(startDate, endDate) {
+    if (!startDate || !endDate) return null;
+    const diffDays = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000);
+    if (diffDays < 0) return null;
+    if (diffDays === 0) return "0 jrs";
+
+    if (diffDays < 30) {
+      return `${diffDays} jrs`;
+    }
+
+    const months = Math.floor(diffDays / 30);
+    const days = diffDays % 30;
+
+    if (months >= 1 && days > 0) {
+      return `${months} mois et ${days} jrs`;
+    }
+    if (months >= 1) {
+      return `${months} mois`;
+    }
+    return `${diffDays} jrs`;
+  }
+
+  function pickFirstRawDate(...values) {
+    for (const value of values) {
+      if (parseAnchorDate(value)) return value;
+    }
+    return null;
+  }
+
+  function pickLatestRawDate(...values) {
+    let latest = null;
+    let latestTime = -Infinity;
+    for (const value of values) {
+      const parsed = parseAnchorDate(value);
+      if (!parsed) continue;
+      const time = parsed.getTime();
+      if (time > latestTime) {
+        latestTime = time;
+        latest = value;
+      }
+    }
+    return latest;
+  }
+
+  function extractComplementDates(demandeComplements) {
+    const result = { instructionDate: null, depotDate: null };
+    if (!Array.isArray(demandeComplements) || !demandeComplements.length) {
+      return result;
+    }
+
+    const instructions = demandeComplements.filter(
+      (entry) => entry?.type_complement === "COMPLEMENT_INSTRUCTION"
+    );
+    if (!instructions.length) return result;
+
+    const latestInstruction = [...instructions].sort(
+      (a, b) =>
+        new Date(b.date_creation_demande) - new Date(a.date_creation_demande)
+    )[0];
+    result.instructionDate = latestInstruction.date_creation_demande || null;
+
+    const depotDates = [];
+    for (const entry of demandeComplements) {
+      for (const key of [
+        "date_reponse_usager",
+        "date_depot_complement",
+        "date_complement_depot",
+        "date_reponse",
+        "date_validation",
+        "date_fin_traitement",
+        "date_modification",
+      ]) {
+        if (entry?.[key]) depotDates.push(entry[key]);
+      }
+    }
+
+    result.depotDate = pickLatestRawDate(...depotDates);
+    return result;
+  }
+
+  function resolveDemandeDeposeeRawDate(apiInfos, index, currentIndex) {
+    const {
+      demandeDate,
+      complementInstructionDate,
+      complementDepotDate,
+      dossierDepotDate,
+      dateStatut,
+    } = apiInfos;
+    const complementDate = parseAnchorDate(complementInstructionDate);
+
+    if (complementDate) {
+      const candidates = [complementDepotDate, dossierDepotDate];
+      const demandeParsed = parseAnchorDate(demandeDate);
+      if (demandeParsed && demandeParsed.getTime() >= complementDate.getTime()) {
+        candidates.push(demandeDate);
+      }
+      if (index === currentIndex) {
+        candidates.push(dateStatut);
+      }
+      return pickLatestRawDate(...candidates);
+    }
+
+    return pickFirstRawDate(
+      dossierDepotDate,
+      demandeDate,
+      index === currentIndex ? dateStatut : null
+    );
+  }
+
+  function getStepAnchorRawDate(stepKey, index, currentIndex, apiInfos) {
+    const {
+      demandeDate,
+      complementInstructionDate,
+      recepisseCreated,
+      assimilationDate,
+      dateStatut,
+      decretDate,
+      decretId,
+    } = apiInfos;
+
+    switch (stepKey) {
+      case "demande_envoyee":
+        return demandeDate;
+      case "examen_pieces":
+        return (
+          complementInstructionDate ||
+          (index <= currentIndex ? dateStatut : null)
+        );
+      case "demande_deposee":
+        return resolveDemandeDeposeeRawDate(apiInfos, index, currentIndex);
+      case "recepisse_completude":
+        return recepisseCreated;
+      case "entretien_assimilation":
+        return assimilationDate;
+      case "decision_prise":
+        return decretDate || (decretId && index === currentIndex ? dateStatut : null);
+      case "ceremonie_naturalisation":
+        return index === currentIndex ? dateStatut : null;
+      default:
+        return index === currentIndex ? dateStatut : null;
+    }
+  }
+
+  function getStepKnownDate(stepKey, index, currentIndex, apiInfos) {
+    return parseAnchorDate(
+      getStepAnchorRawDate(stepKey, index, currentIndex, apiInfos)
+    );
+  }
+
+  function getDurationBetweenSteps(fromStep, fromIndex, toStep, toIndex, currentIndex, apiInfos) {
+    const fromDate = getStepKnownDate(fromStep.key, fromIndex, currentIndex, apiInfos);
+    const toDate = getStepKnownDate(toStep.key, toIndex, currentIndex, apiInfos);
+    return formatDurationBetween(fromDate, toDate);
+  }
+
   function hasNaturalisationData(apiInfos) {
     if (!apiInfos?.idDossier || !apiInfos?.dossier?.statut) return false;
 
@@ -349,10 +512,13 @@
       dateStatutRelative: daysAgo(data.dossier.date_statut),
       demandeDate: null,
       complementInstructionDate: null,
+      complementDepotDate: null,
+      dossierDepotDate: null,
       assimilationDate: null,
       assimilationPlateforme: null,
       recepisseCreated: null,
       decretId: null,
+      decretDate: null,
       dossier: data.dossier,
       dossierDetails: null,
       notifications: [],
@@ -383,6 +549,14 @@
       apiInfos.raw.dossier = dossierDetails;
       apiInfos.demandeDate =
         dossierDetails?.taxe_payee?.date_consommation || null;
+      apiInfos.dossierDepotDate = pickFirstRawDate(
+        dossierDetails?.date_depot,
+        dossierDetails?.demande?.date_depot,
+        dossierDetails?.demande?.date_validation,
+        dossierDetails?.demande?.date_creation,
+        dossierDetails?.date_validation,
+        apiInfos.dossier?.date_depot
+      );
       apiInfos.assimilationDate =
         dossierDetails?.entretien_assimilation?.date_rdv || null;
       apiInfos.assimilationPlateforme =
@@ -395,24 +569,22 @@
         for (const identite of idents) {
           if (identite?.decret?.id) {
             apiInfos.decretId = identite.decret.id;
+            apiInfos.decretDate =
+              identite.decret.date_publication ||
+              identite.decret.date_parution ||
+              identite.decret.date_parution_jo ||
+              identite.decret.date_signature ||
+              identite.decret.date ||
+              null;
             break;
           }
         }
       }
 
       const demandeComplements = dossierDetails?.demande_complement;
-      if (Array.isArray(demandeComplements) && demandeComplements.length > 0) {
-        const complementInstructions = demandeComplements.filter(
-          (dc) => dc?.type_complement === "COMPLEMENT_INSTRUCTION"
-        );
-        if (complementInstructions.length > 0) {
-          apiInfos.complementInstructionDate = complementInstructions.sort(
-            (a, b) =>
-              new Date(b.date_creation_demande) -
-              new Date(a.date_creation_demande)
-          )[0]?.date_creation_demande;
-        }
-      }
+      const complementDates = extractComplementDates(demandeComplements);
+      apiInfos.complementInstructionDate = complementDates.instructionDate;
+      apiInfos.complementDepotDate = complementDates.depotDate;
     }
 
     if (notifRaw) {
@@ -430,6 +602,25 @@
         apiInfos.recepisseCreated = matches.sort(
           (a, b) => new Date(b._created) - new Date(a._created)
         )[0]?._created;
+      }
+
+      if (apiInfos.complementInstructionDate && !apiInfos.complementDepotDate) {
+        const complementDate = parseAnchorDate(apiInfos.complementInstructionDate);
+        const depotCandidates = apiInfos.notifications
+          .filter((item) => {
+            if (String(item?.id_demande) !== String(idDossier) || !item?._created) {
+              return false;
+            }
+            const created = parseAnchorDate(item._created);
+            if (!created || !complementDate || created < complementDate) return false;
+            const motif = String(item.motif_notification || "").toUpperCase();
+            return /COMPLEMENT|DEPOT|DEPOSE|COMPLET|INSTRUCTION/.test(motif);
+          })
+          .map((item) => item._created)
+          .sort((a, b) => new Date(a) - new Date(b));
+        if (depotCandidates.length) {
+          apiInfos.complementDepotDate = depotCandidates[0];
+        }
       }
     }
 
@@ -485,6 +676,205 @@
     { key: "decision_prise", title: "Décision prise" },
     { key: "ceremonie_naturalisation", title: "Cérémonie de naturalisation" },
   ];
+
+  const MACRO_PHASES = [
+    {
+      key: "prefecture",
+      title: "Préfecture",
+      subtitle: "Dépôt, examen des pièces, entretien et instruction préfectorale",
+      startIndex: 0,
+      endIndex: 7,
+    },
+    {
+      key: "sdanf_scec",
+      title: "SDANF & SCEC",
+      subtitle: "Contrôles SDANF, validation SCEC, décret et cérémonie",
+      startIndex: 8,
+      endIndex: 12,
+    },
+  ];
+
+  const MACRO_STATUS_ICONS = {
+    done: `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m8 12.5 2.5 2.5L16 9.5"></path></svg>`,
+    pending: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12"></path><path d="M6 22h12"></path><path d="M8 2v5a4 4 0 0 0 8 0V2"></path><path d="M8 22v-5a4 4 0 0 1 8 0v5"></path><path d="M12 11v2"></path></svg>`,
+    current: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12"></path><path d="M6 22h12"></path><path d="M8 2v5a4 4 0 0 0 8 0V2"></path><path d="M8 22v-5a4 4 0 0 1 8 0v5"></path><path d="M12 11v2"></path></svg>`,
+  };
+
+  function getMacroPhaseState(phase, currentIndex) {
+    if (currentIndex > phase.endIndex) return "done";
+    if (currentIndex >= phase.startIndex && currentIndex <= phase.endIndex) {
+      return "current";
+    }
+    return "pending";
+  }
+
+  function getMacroProgressPct(currentIndex) {
+    const prefectureEnd = MACRO_PHASES[0].endIndex + 1;
+    const sdanfSteps = MACRO_PHASES[1].endIndex - MACRO_PHASES[1].startIndex + 1;
+    if (currentIndex < MACRO_PHASES[1].startIndex) {
+      return Math.round(((currentIndex + 1) / prefectureEnd) * 50);
+    }
+    const sdanfProgress = currentIndex - MACRO_PHASES[1].startIndex + 1;
+    return 50 + Math.round((sdanfProgress / sdanfSteps) * 50);
+  }
+
+  function createMacroStatusIcon(state) {
+    const icon = document.createElement("span");
+    icon.className = `anf-macro-status-icon is-${state}`;
+    icon.innerHTML = MACRO_STATUS_ICONS[state] || MACRO_STATUS_ICONS.pending;
+    icon.setAttribute("aria-hidden", "true");
+    return icon;
+  }
+
+  function getStepState(index, currentIndex) {
+    if (index < currentIndex) return "done";
+    if (index === currentIndex) return "current";
+    return "pending";
+  }
+
+  function shouldShowStepInStepper(step, index, currentIndex) {
+    return !(
+      step.key.startsWith("traitement_plateforme") && index < currentIndex
+    );
+  }
+
+  function buildTrackStepItem(step, index, currentIndex, apiInfos, railMeta = {}) {
+    const {
+      isFirst = false,
+      isLast = false,
+      lineInDone = false,
+      lineOutDone = false,
+      lineInDuration = null,
+    } = railMeta;
+    const state = getStepState(index, currentIndex);
+    const item = document.createElement("div");
+    item.className = `anf-track-step is-${state}`;
+    item.setAttribute("role", "listitem");
+    item.dataset.stepKey = step.key;
+
+    const track = document.createElement("div");
+    track.className = "anf-step-track";
+
+    const lineIn = document.createElement("span");
+    lineIn.className = "anf-step-line anf-step-line--in";
+    if (lineInDone) lineIn.classList.add("is-done");
+    if (isFirst) lineIn.classList.add("is-hidden");
+    lineIn.setAttribute("aria-hidden", "true");
+
+    const node = document.createElement("span");
+    node.className = "anf-step-node";
+    node.appendChild(createStepIcon(step.key));
+
+    const lineOut = document.createElement("span");
+    lineOut.className = "anf-step-line anf-step-line--out";
+    if (lineOutDone) lineOut.classList.add("is-done");
+    if (isLast) lineOut.classList.add("is-hidden");
+    lineOut.setAttribute("aria-hidden", "true");
+
+    track.append(lineIn, node, lineOut);
+
+    if (lineInDuration) {
+      track.setAttribute("title", `Durée : ${lineInDuration}`);
+      const durationEl = document.createElement("span");
+      durationEl.className = "anf-step-duration";
+      if (lineInDone) durationEl.classList.add("is-done");
+      durationEl.textContent = lineInDuration;
+      track.appendChild(durationEl);
+    }
+
+    const copy = document.createElement("div");
+    copy.className = "anf-step-copy";
+
+    const title = document.createElement("p");
+    title.className = "anf-track-step-title";
+    title.textContent = step.title;
+    copy.appendChild(title);
+
+    item.appendChild(track);
+    item.appendChild(copy);
+    appendStepDetails(copy, step.key, index, currentIndex, apiInfos);
+
+    return item;
+  }
+
+  function buildMacroPhaseBlock(phase, currentIndex, apiInfos) {
+    const state = getMacroPhaseState(phase, currentIndex);
+    const block = document.createElement("div");
+    block.className = `anf-macro-block is-${state}`;
+    block.setAttribute("role", "listitem");
+    block.dataset.phaseKey = phase.key;
+
+    const inner = document.createElement("div");
+    inner.className = "anf-macro-block-inner";
+
+    inner.appendChild(createMacroStatusIcon(state));
+
+    const content = document.createElement("div");
+    content.className = "anf-macro-content";
+
+    const head = document.createElement("div");
+    head.className = "anf-macro-head";
+    head.innerHTML = `
+      <h3 class="anf-macro-title">${phase.title}</h3>
+      <span class="anf-macro-badge">${state === "done" ? "Terminé" : state === "current" ? "En cours" : "À venir"}</span>
+    `;
+    content.appendChild(head);
+
+    const subtitle = document.createElement("p");
+    subtitle.className = "anf-macro-subtitle";
+    subtitle.textContent = phase.subtitle;
+    content.appendChild(subtitle);
+
+    const stepperWrap = document.createElement("div");
+    stepperWrap.className = "anf-phase-stepper-wrap";
+
+    const stepper = document.createElement("div");
+    stepper.className = "anf-phase-stepper";
+    stepper.setAttribute("role", "list");
+    stepper.setAttribute("aria-label", `Étapes ${phase.title}`);
+
+    const phaseSteps = RECREATED_TRACKING_STEPS.slice(
+      phase.startIndex,
+      phase.endIndex + 1
+    );
+    const visibleSteps = phaseSteps
+      .map((step, offset) => ({ step, index: phase.startIndex + offset }))
+      .filter(({ step, index }) =>
+        shouldShowStepInStepper(step, index, currentIndex)
+      );
+
+    visibleSteps.forEach(({ step, index }, visibleOffset) => {
+      const isFirst = visibleOffset === 0;
+      const isLast = visibleOffset === visibleSteps.length - 1;
+      const prev = !isFirst ? visibleSteps[visibleOffset - 1] : null;
+      const lineInDuration = prev
+        ? getDurationBetweenSteps(
+            prev.step,
+            prev.index,
+            step,
+            index,
+            currentIndex,
+            apiInfos
+          )
+        : null;
+
+      stepper.appendChild(
+        buildTrackStepItem(step, index, currentIndex, apiInfos, {
+          isFirst,
+          isLast,
+          lineInDone: !isFirst && index <= currentIndex,
+          lineOutDone: !isLast && index < currentIndex,
+          lineInDuration,
+        })
+      );
+    });
+    stepperWrap.appendChild(stepper);
+    content.appendChild(stepperWrap);
+
+    inner.appendChild(content);
+    block.appendChild(inner);
+    return block;
+  }
 
   function createStepIcon(stepKey) {
     const iconByStep = {
@@ -655,156 +1045,365 @@
         background: linear-gradient(90deg, var(--anf-bleu), #6a6af4);
       }
       .anf-track-rail {
-        display: flex;
-        align-items: stretch;
-        gap: 6px;
         margin: 0;
-        padding: 0 0 4px;
-        overflow-x: auto;
-        scroll-snap-type: x proximity;
-        scrollbar-width: thin;
-      }
-      .anf-track-rail::-webkit-scrollbar { height: 4px; }
-      .anf-track-rail::-webkit-scrollbar-thumb {
-        background: #c5c5d8;
-        border-radius: 999px;
-      }
-      .anf-track-step {
-        display: flex;
-        flex: 0 0 136px;
-        scroll-snap-align: start;
-      }
-      .anf-track-step-body {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        width: 100%;
-        min-height: 148px;
-        height: auto;
-        padding: 8px 8px 10px;
-        border-radius: 8px;
-        border: 1px solid transparent;
-        background: transparent;
+        padding: 0;
         overflow: visible;
       }
-      .anf-track-step-main {
+      .anf-macro-track {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        gap: 5px;
-        flex-shrink: 0;
+        gap: 0;
       }
-      .anf-track-step-icon {
+      .anf-macro-block {
+        width: 100%;
+      }
+      .anf-macro-block-inner {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        width: 100%;
+        padding: 16px 18px;
+        border-radius: 12px;
+        border: 2px solid #e3e3ef;
+        background: #fff;
+        box-shadow: 0 4px 18px rgba(0, 0, 145, 0.05);
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+      .anf-macro-block.is-done .anf-macro-block-inner {
+        border-color: #22c55e;
+        background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%);
+      }
+      .anf-macro-block.is-current .anf-macro-block-inner {
+        border-color: var(--anf-rouge);
+        background: linear-gradient(135deg, #fff5f5 0%, #ffffff 100%);
+        box-shadow: 0 8px 28px rgba(225, 0, 15, 0.12);
+      }
+      .anf-macro-block.is-pending .anf-macro-block-inner {
+        border-color: #e5e5e5;
+        background: #fafafa;
+        opacity: 0.88;
+      }
+      .anf-macro-status-icon {
+        flex: 0 0 44px;
+        width: 44px;
+        height: 44px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        border-radius: 50%;
+        background: #f3f3f8;
+      }
+      .anf-macro-status-icon svg {
         width: 24px;
         height: 24px;
-        color: var(--anf-bleu);
-        flex-shrink: 0;
-      }
-      .anf-track-step-icon svg {
-        display: block;
-        width: 18px;
-        height: 18px;
         fill: none;
         stroke: currentColor;
         stroke-width: 2;
         stroke-linecap: round;
         stroke-linejoin: round;
       }
-      .anf-track-step.is-current .anf-track-step-icon { color: var(--anf-rouge); }
-      .anf-track-step.is-pending .anf-track-step-icon { color: #9b9b9b; }
-      .anf-track-step.is-done .anf-track-step-body {
-        background: rgba(0, 0, 145, 0.04);
+      .anf-macro-status-icon.is-done {
+        color: #16a34a;
+        background: #dcfce7;
       }
-      .anf-track-step.is-done .anf-track-step-title {
-        color: var(--anf-bleu);
+      .anf-macro-status-icon.is-done svg circle {
+        fill: #16a34a;
+        stroke: #16a34a;
       }
-      .anf-track-step.is-current .anf-track-step-body {
-        background: var(--anf-surface);
-        border-color: rgba(225, 0, 15, 0.2);
-        box-shadow: 0 4px 14px rgba(0, 0, 145, 0.07);
+      .anf-macro-status-icon.is-done svg path {
+        stroke: #fff;
+        stroke-width: 2.5;
       }
-      .anf-track-step.is-current .anf-track-step-title {
+      .anf-macro-status-icon.is-pending {
+        color: #9ca3af;
+        background: #f3f4f6;
+      }
+      .anf-macro-status-icon.is-current {
+        color: #d97706;
+        background: #fff7ed;
+        animation: anf-hourglass-pulse 2s ease-in-out infinite;
+      }
+      @keyframes anf-hourglass-pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.06); }
+      }
+      .anf-macro-connector {
+        width: 2px;
+        height: 18px;
+        margin: 0 auto;
+        background: linear-gradient(180deg, #c5c5d8, #a5a5c0);
+        border-radius: 999px;
+      }
+      .anf-macro-connector.is-done {
+        background: linear-gradient(180deg, #4ade80, #16a34a);
+      }
+      .anf-macro-content {
+        flex: 1;
+        min-width: 0;
+      }
+      .anf-macro-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 4px;
+      }
+      .anf-macro-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 800;
+        color: var(--anf-ink);
+        line-height: 1.2;
+      }
+      .anf-macro-block.is-done .anf-macro-title { color: #15803d; }
+      .anf-macro-block.is-current .anf-macro-title { color: var(--anf-rouge); }
+      .anf-macro-block.is-pending .anf-macro-title { color: #9ca3af; }
+      .anf-macro-badge {
+        flex-shrink: 0;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .anf-macro-block.is-done .anf-macro-badge {
+        background: #dcfce7;
+        color: #15803d;
+      }
+      .anf-macro-block.is-current .anf-macro-badge {
+        background: #fee2e2;
         color: var(--anf-rouge);
       }
-      .anf-track-step.is-pending .anf-track-step-body {
-        opacity: 0.65;
+      .anf-macro-block.is-pending .anf-macro-badge {
+        background: #f3f4f6;
+        color: #9ca3af;
       }
-      .anf-track-step.is-pending .anf-track-step-title {
-        color: #9b9b9b;
-        font-weight: 500;
+      .anf-macro-subtitle {
+        margin: 0 0 14px;
+        font-size: 12px;
+        color: var(--anf-muted);
+        line-height: 1.4;
       }
-      .anf-track-step-accent {
-        display: block;
+      .anf-phase-stepper-wrap {
+        display: flex;
+        justify-content: center;
         width: 100%;
-        height: 2px;
-        border-radius: 999px;
-        background: #d8d8e4;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
       }
-      .anf-track-step.is-done .anf-track-step-accent {
+      .anf-phase-stepper {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        flex: 0 1 auto;
+        width: max-content;
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 14px 0 4px;
+        gap: 0;
+      }
+      .anf-phase-stepper .anf-track-step {
+        flex: 0 1 148px;
+        width: 148px;
+        min-width: 112px;
+        max-width: 168px;
+        display: flex;
+        flex-direction: column;
+        overflow: visible;
+      }
+      .anf-step-track {
+        position: relative;
+        display: flex;
+        align-items: center;
+        width: 100%;
+        height: 36px;
+        overflow: visible;
+      }
+      .anf-step-line {
+        position: relative;
+        flex: 1 1 0;
+        min-width: 8px;
+        height: 2px;
+        background: #d4d4e0;
+        border-radius: 999px;
+        transition: background 0.25s ease;
+      }
+      .anf-step-line.is-done {
         background: var(--anf-bleu);
       }
-      .anf-track-step.is-current .anf-track-step-accent {
-        background: var(--anf-rouge);
+      .anf-step-line.is-hidden {
+        visibility: hidden;
+      }
+      .anf-step-duration {
+        position: absolute;
+        left: 0;
+        top: 50%;
+        z-index: 2;
+        transform: translate(-50%, calc(-100% - 5px));
+        padding: 1px 5px;
+        border-radius: 4px;
+        background: #f0f0f8;
+        color: #5c5c78;
+        font-size: 8.5px;
+        font-weight: 700;
+        line-height: 1.2;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      .anf-step-duration.is-done {
+        background: #eef0ff;
+        color: #3b3b9e;
+      }
+      .anf-step-node {
+        position: relative;
+        z-index: 1;
+        flex: 0 0 34px;
+        width: 34px;
+        height: 34px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        border: 2px solid #d0d0de;
+        background: #fff;
+        transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+      }
+      .anf-track-step-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        color: #7b7b96;
+        flex-shrink: 0;
+      }
+      .anf-track-step-icon svg {
+        display: block;
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .anf-track-step.is-done .anf-step-node {
+        border-color: var(--anf-bleu);
+        background: var(--anf-bleu);
+        box-shadow: 0 2px 8px rgba(0, 0, 145, 0.22);
+      }
+      .anf-track-step.is-done .anf-track-step-icon {
+        color: #fff;
+      }
+      .anf-track-step.is-current .anf-step-node {
+        border-color: var(--anf-rouge);
+        background: #fff;
+        box-shadow: 0 0 0 4px rgba(225, 0, 15, 0.12);
+        animation: anf-node-pulse 2.4s ease-in-out infinite;
+      }
+      .anf-track-step.is-current .anf-track-step-icon {
+        color: var(--anf-rouge);
+      }
+      .anf-track-step.is-pending .anf-step-node {
+        border-color: #e2e2ec;
+        background: #f6f6fa;
+      }
+      .anf-track-step.is-pending .anf-track-step-icon {
+        color: #b0b0be;
+      }
+      @keyframes anf-node-pulse {
+        0%, 100% { box-shadow: 0 0 0 4px rgba(225, 0, 15, 0.1); }
+        50% { box-shadow: 0 0 0 7px rgba(225, 0, 15, 0.16); }
+      }
+      .anf-step-copy {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: 10px 6px 0;
+        text-align: center;
+      }
+      .anf-track-step.is-current .anf-step-copy {
+        padding-top: 8px;
+        margin-top: 2px;
+        border-radius: 8px;
+        background: rgba(225, 0, 15, 0.03);
       }
       .anf-track-step-title {
         margin: 0;
         width: 100%;
         font-size: 11px;
         font-weight: 700;
-        line-height: 1.3;
-        text-align: center;
+        line-height: 1.35;
+        color: var(--anf-ink);
         word-break: break-word;
+      }
+      .anf-track-step.is-done .anf-track-step-title {
+        color: var(--anf-bleu);
+      }
+      .anf-track-step.is-current .anf-track-step-title {
+        color: var(--anf-rouge);
+        font-size: 11.5px;
+      }
+      .anf-track-step.is-pending .anf-track-step-title {
+        color: #9b9b9b;
+        font-weight: 600;
       }
       .anf-track-step-details {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        gap: 4px;
+        align-items: stretch;
+        gap: 3px;
         width: 100%;
-        flex: 1;
-        margin-top: auto;
-        overflow: visible;
+        margin-top: 2px;
+      }
+      .anf-track-step-details:empty {
+        display: none;
       }
       .anf-track-step-detail {
         display: block;
         width: 100%;
         color: var(--anf-muted);
-        font-size: 10px;
+        font-size: 9.5px;
         font-weight: 500;
-        line-height: 1.3;
+        line-height: 1.35;
         text-align: center;
         white-space: normal;
         word-break: break-word;
       }
-      .anf-track-step-detail.is-date { color: #4b4b6a; }
+      .anf-track-step-detail.is-date {
+        color: #5c5c78;
+        font-size: 9px;
+      }
       .anf-track-step-detail.is-status-card {
-        padding: 6px 7px;
+        padding: 5px 6px;
         border-radius: 6px;
-        border: 1px solid rgba(0, 0, 145, 0.12);
-        background: #fafafe;
+        border: 1px solid rgba(0, 0, 145, 0.1);
+        background: #f7f7fd;
         color: var(--anf-ink);
-        font-size: 10px;
+        font-size: 9.5px;
         font-weight: 600;
         line-height: 1.35;
-        text-align: center;
+      }
+      .anf-track-step.is-current .anf-track-step-detail.is-status-card {
+        border-color: rgba(225, 0, 15, 0.18);
+        background: #fff;
       }
       .anf-track-step-detail.is-status-time {
         color: var(--anf-rouge);
-        font-size: 10px;
-        text-align: center;
+        font-size: 9px;
+        font-weight: 600;
       }
       .anf-track-step-detail.is-decret-card {
-        padding: 6px 7px;
+        padding: 5px 6px;
         border-radius: 6px;
         border: 1px solid #9be9b0;
         background: #f3fff6;
         color: #18794e;
-        font-size: 10px;
+        font-size: 9.5px;
         white-space: pre-line;
-        text-align: center;
       }
       .anf-track-step-detail.is-link {
         color: var(--anf-bleu);
@@ -845,29 +1444,45 @@
         font-weight: 500;
         white-space: nowrap;
       }
-      @media (max-width: 900px) {
-        .anf-track-step { flex-basis: 128px; }
+      @media (max-width: 640px) {
+        .anf-macro-block-inner {
+          flex-direction: column;
+          gap: 12px;
+          padding: 14px;
+        }
+        .anf-macro-status-icon {
+          flex: 0 0 40px;
+          width: 40px;
+          height: 40px;
+        }
+        .anf-macro-title { font-size: 15px; }
+        .anf-phase-stepper .anf-track-step {
+          flex: 0 1 120px;
+          width: 120px;
+          min-width: 96px;
+          max-width: 128px;
+        }
+        .anf-step-node {
+          flex: 0 0 30px;
+          width: 30px;
+          height: 30px;
+        }
+        .anf-track-step-icon svg {
+          width: 14px;
+          height: 14px;
+        }
+        .anf-track-step-title {
+          font-size: 10px;
+        }
+        .anf-track-step-detail {
+          font-size: 9px;
+        }
+        .anf-step-duration {
+          font-size: 7.5px;
+          padding: 1px 3px;
+        }
       }
     `;
-  }
-
-  function equalizeStepHeights(rail) {
-    const bodies = Array.from(rail.querySelectorAll(".anf-track-step-body"));
-    if (!bodies.length) return;
-
-    bodies.forEach((body) => {
-      body.style.height = "auto";
-    });
-
-    const maxHeight = bodies.reduce((max, body) => {
-      return Math.max(max, Math.ceil(body.getBoundingClientRect().height));
-    }, 0);
-
-    if (!maxHeight) return;
-
-    bodies.forEach((body) => {
-      body.style.height = `${maxHeight}px`;
-    });
   }
 
   function createStepDetail(text, variant) {
@@ -892,6 +1507,12 @@
     } = apiInfos;
     const isCurrent = index === currentIndex;
     const details = [];
+    const anchorRawDate = getStepAnchorRawDate(
+      stepKey,
+      index,
+      currentIndex,
+      apiInfos
+    );
 
     if (stepKey === "demande_envoyee" && demandeDate) {
       details.push({ text: formatDate(demandeDate), variant: "date" });
@@ -902,8 +1523,8 @@
         variant: "date",
       });
     }
-    if (stepKey === "demande_deposee" && demandeDate) {
-      details.push({ text: formatDate(demandeDate), variant: "date" });
+    if (stepKey === "demande_deposee" && anchorRawDate) {
+      details.push({ text: formatDate(anchorRawDate), variant: "date" });
     }
     if (stepKey === "recepisse_completude" && recepisseCreated) {
       details.push({ text: formatDate(recepisseCreated), variant: "date" });
@@ -919,6 +1540,17 @@
           variant: "date",
           masked: true,
         });
+      }
+    }
+    if (isCurrent && dateStatut) {
+      const statusDateLabel = formatDate(dateStatut);
+      const alreadyShown = details.some(
+        (detail) =>
+          detail.text === statusDateLabel ||
+          detail.text?.includes(statusDateLabel)
+      );
+      if (!alreadyShown) {
+        details.unshift({ text: statusDateLabel, variant: "date" });
       }
     }
     if (isCurrent && !["decision_prise", "ceremonie_naturalisation"].includes(stepKey)) {
@@ -1009,7 +1641,7 @@
   function renderRecreatedStepper(apiInfos) {
     const header = document.querySelector("anef-header");
     if (!header) {
-      console.warn("Extension API Naturalisation : anef-header introuvable");
+      console.log("Warning: Extension API Naturalisation — anef-header introuvable");
       return false;
     }
 
@@ -1028,10 +1660,13 @@
       header.insertAdjacentElement("afterend", root);
     }
 
-    const progressPct = Math.round(
-      ((currentIndex + 1) / RECREATED_TRACKING_STEPS.length) * 100
-    );
+    const progressPct = getMacroProgressPct(currentIndex);
     const currentStepTitle = RECREATED_TRACKING_STEPS[currentIndex]?.title || "";
+    const currentPhase =
+      MACRO_PHASES.find(
+        (phase) =>
+          currentIndex >= phase.startIndex && currentIndex <= phase.endIndex
+      ) || MACRO_PHASES[MACRO_PHASES.length - 1];
 
     root.innerHTML = `
       <div class="anf-stepper-inner">
@@ -1040,7 +1675,7 @@
         </div>
         <div class="anf-track-progress-wrap">
           <div class="anf-track-progress-meta">
-            <span><strong>${currentStepTitle}</strong></span>
+            <span><strong>${currentPhase.title}</strong> · ${currentStepTitle}</span>
             <span>${progressPct}% · <span class="anf-stepper-version">v${extensionVersion}</span></span>
           </div>
           <div class="anf-track-progress" aria-hidden="true">
@@ -1052,47 +1687,41 @@
     `;
 
     const list = root.querySelector(".anf-track-rail");
-    RECREATED_TRACKING_STEPS.forEach((step, index) => {
-      const item = document.createElement("div");
-      item.className = "anf-track-step";
-      item.setAttribute("role", "listitem");
-      item.dataset.stepKey = step.key;
-      if (index < currentIndex) item.classList.add("is-done");
-      if (index === currentIndex) item.classList.add("is-current");
-      if (index > currentIndex) item.classList.add("is-pending");
+    list.classList.add("anf-macro-track");
 
-      const body = document.createElement("div");
-      body.className = "anf-track-step-body";
-
-      const accent = document.createElement("span");
-      accent.className = "anf-track-step-accent";
-      accent.setAttribute("aria-hidden", "true");
-      body.appendChild(accent);
-
-      const main = document.createElement("div");
-      main.className = "anf-track-step-main";
-      main.appendChild(createStepIcon(step.key));
-
-      const title = document.createElement("h3");
-      title.className = "anf-track-step-title";
-      title.textContent = step.title;
-      main.appendChild(title);
-      body.appendChild(main);
-
-      item.appendChild(body);
-      appendStepDetails(body, step.key, index, currentIndex, apiInfos);
-      list.appendChild(item);
+    const trackFragment = document.createDocumentFragment();
+    MACRO_PHASES.forEach((phase, phaseIndex) => {
+      trackFragment.appendChild(
+        buildMacroPhaseBlock(phase, currentIndex, apiInfos)
+      );
+      if (phaseIndex < MACRO_PHASES.length - 1) {
+        const connector = document.createElement("div");
+        connector.className = "anf-macro-connector";
+        if (currentIndex > phase.endIndex) {
+          connector.classList.add("is-done");
+        }
+        connector.setAttribute("aria-hidden", "true");
+        trackFragment.appendChild(connector);
+      }
     });
+    list.appendChild(trackFragment);
 
     requestAnimationFrame(() => {
-      equalizeStepHeights(list);
-      const currentItem = list.querySelector(".anf-track-step.is-current");
-      if (currentItem) {
-        currentItem.scrollIntoView({
+      const currentStep = list.querySelector(".anf-track-step.is-current");
+      if (currentStep) {
+        currentStep.scrollIntoView({
           behavior: "smooth",
-          inline: "center",
           block: "nearest",
+          inline: "center",
         });
+      } else {
+        const currentBlock = list.querySelector(".anf-macro-block.is-current");
+        if (currentBlock) {
+          currentBlock.scrollIntoView({
+            behavior: "smooth",
+            block: "nearest",
+          });
+        }
       }
     });
 
@@ -1183,8 +1812,8 @@
         return;
       }
     } catch (error) {
-      console.warn(
-        "Extension API Naturalisation : toggle série ignoré:",
+      console.log(
+        "Warning: Extension API Naturalisation — toggle série ignoré:",
         error
       );
     }
@@ -1232,8 +1861,8 @@
         return;
       }
     } catch (error) {
-      console.warn(
-        "Extension API Naturalisation : toggle timbre ignoré:",
+      console.log(
+        "Warning: Extension API Naturalisation — toggle timbre ignoré:",
         error
       );
     }
@@ -1311,15 +1940,15 @@
           addFiscalStampVisibilityToggle();
         })
         .catch((error) => {
-          console.warn(
-            "Extension API Naturalisation : enrichissement partiel:",
+          console.log(
+            "Warning: Extension API Naturalisation — enrichissement partiel:",
             error
           );
           logApiInfos(apiInfos);
         });
     } catch (error) {
-      console.error(
-        "Extension API Naturalisation : erreur inattendue:",
+      console.log(
+        "Error: Extension API Naturalisation — erreur inattendue:",
         error
       );
       removeStepperIfPresent();
