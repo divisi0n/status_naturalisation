@@ -86,7 +86,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.6.3";
+  const extensionVersion = "3.6.4";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -139,110 +139,27 @@
       return prefix ? `${prefix} : ${info.explication}` : info.explication;
     }
 
+    // Fallback pour les codes non couverts par STATUTS (vérifié en premier).
     const statusMap = {
-        // 0 Brouillon
-        draft: "Dossier en brouillon",
-        // 1 Dépôt de la demande
-        dossier_depose: "Dossier déposé",
-        // 2 Examen des pièces en cours
-        verification_formelle_a_traiter: "Préfecture : Vérification à traiter",
-        verification_formelle_en_cours:
-          "Préfecture : Vérification formelle en cours",
-        verification_formelle_mise_en_demeure:
-          "Préfecture : Vérification formelle, mise en demeure",
-        instruction_a_affecter:
-          "Préfecture : En attente affectation à un agent",
-        // 3 Réception du récépissé de complétude
-        instruction_recepisse_completude_a_envoyer:
-          "Préfecture : récépissé de complétude à envoyer",
-        instruction_recepisse_completude_a_envoyer_retour_complement_a_traiter:
-          "Préfecture : Compléments à vérfier par l'agent",
-        // 4 Entretien
-        instruction_date_ea_a_fixer: "Préfecture : Date entretien à fixer",
-        ea_demande_report_ea: "Préfecture : Demande de report entretien",
-        ea_en_attente_ea: "Préfecture : Attente convocation entretien",
-        ea_crea_a_valider:
-          "Préfecture : Entretien passé, compte-rendu à valider",
-        // 5 Decision prefecture
-        prop_decision_pref_a_effectuer: "Préfecture : Décision à effectuer",
-        prop_decision_pref_en_attente_retour_hierarchique:
-          "Préfecture : En attente retour hiérarchique",
-        prop_decision_pref_en_attente_retour_hierarchiqu:
-          "Préfecture : En attente retour hiérarchique",
-        prop_decision_pref_prop_a_editer:
-          "Préfecture : Décision prise, rédaction en cours",
-        prop_decision_pref_en_attente_retour_signataire:
-          "Préfecture : En attente retour signataire",
-        // 6 Controle
-        controle_a_affecter: "SDANF : Dossier transmis, attente d'affectation",
-        controle_a_effectuer: "SDANF : Contrôle état civil à effectuer",
-        controle_en_attente_pec: "SCEC : Attente validation pièce d'état civil",
-        controle_pec_a_faire: "SCEC : Validation en cours pièce d'état civil",
-        controle_transmise_pour_decret:
-          "SDANF : Décret transmis pour approbation",
-        controle_en_attente_retour_hierarchique:
-          "SDANF : Attente retour hiérarchique pour décret",
-        controle_decision_a_editer:
-          "SDANF : Décision hiérarchique prise, édition prochaine",
-        controle_en_attente_signature:
-          "SDANF : Décision prise, attente signature",
-        controle_demande_notifiee: "Contrôle : demande notifiée",
-        // 7 Traitement en cours
-        transmis_a_ac: "Décret : Dossier transmis au service décret",
-        a_verifier_avant_insertion_decret:
-          "Décret : Vérification avant insertion décret",
-        prete_pour_insertion_decret:
-          "Décret : Dossier prêt pour insertion décret",
-        inseree_dans_decret: "Décret : Demande insérée dans décret",
-        decret_envoye_prefecture: "Décret envoyé à préfecture",
-        notification_envoyee: "Décret : Notification envoyée au demandeur",
-        demande_traitee: "Décret : Demande finalisée",
-        // 8 Décision
-        decret_naturalisation_publie:
-          "Décision : Décret de naturalisation publié",
-        decret_en_preparation: "Décision : Décret en préparation",
-        decret_a_qualifier: "Décision : Décret à qualifier",
-        decret_en_validation: "Décision : Décret en validation",
-        decision_negative_en_delais_recours:
-          "Décision négative en délais de recours",
-        irrecevabilite_manifeste: "Décision : irrecevabilité manifeste",
-        irrecevabilite_manifeste_en_delais_recours:
-          "Décision : irrecevabilité en délais de recours",
-        decision_notifiee: "Décision notifiée",
-        demande_en_cours_rapo: "Décision : Demande en cours RAPO",
-        controle_demande_notifiee: "Décision : Contrôle demande notifiée",
-        decret_publie: "Décret de naturalisation publié",
-        // 9 CSS
-        css_en_delais_recours: "Classement sans suite en délais de recours",
-        css_notifie: "Classement sans suite notifiée",
-        css_mise_en_demeure_a_affecter:
-          "Classement sans suite, Mise en demeure à affecter",
-        css_manuels_a_affecter:
-          "Proposition de Classement sans suite manuels à affecter",
-        css_manuels_a_rediger:
-          "Proposition de Classement sans suite manuels à rédiger",
-        css_mise_en_demeure_a_rediger:
-          "Classement sans suite, Mise en demeure à rédiger",
-        css_automatiques_a_affecter:
-          "Classement sans suite automatiques à affecter",
-        css_automatiques_a_rediger:
-          "Proposition de Classement sans suite automatiques à rédiger",
-        //
-        prenat_a_traiter: "Prenaturalisation : À traiter",
-        prenat_en_cours: "Prenaturalisation : En cours",
-        prenat_en_attente_complements:
-          "Prenaturalisation : En attente compléments",
-        prenat_cloture: "Prenaturalisation : Clôturée",
-        //
-        scec_a_faire: "SCEC à faire",
-        scec_en_cours: "SCEC en cours",
-        scec_en_attente: "SCEC en attente",
-        scec_bloque: "SCEC bloqué",
-        scec_termine: "SCEC terminé",
-        non_applicable: "SCEC non attribuable",
-        //
-        code_non_reconnu: "Code non reconnu",
-      };
+      // Variante tronquée parfois renvoyée par l'API
+      prop_decision_pref_en_attente_retour_hierarchiqu:
+        "Préfecture : En attente retour hiérarchique",
+      // Prénaturalisation
+      prenat_a_traiter: "Prenaturalisation : À traiter",
+      prenat_en_cours: "Prenaturalisation : En cours",
+      prenat_en_attente_complements:
+        "Prenaturalisation : En attente compléments",
+      prenat_cloture: "Prenaturalisation : Clôturée",
+      // SCEC
+      scec_a_faire: "SCEC à faire",
+      scec_en_cours: "SCEC en cours",
+      scec_en_attente: "SCEC en attente",
+      scec_bloque: "SCEC bloqué",
+      scec_termine: "SCEC terminé",
+      non_applicable: "SCEC non attribuable",
+      // Fallback générique
+      code_non_reconnu: "Code non reconnu",
+    };
 
     return statusMap[status] || status || statusMap["code_non_reconnu"];
   }
@@ -281,11 +198,9 @@
 
       if (months >= 1) {
         if (days === 0) {
-          return `il y a ${months} ${months === 1 ? "mois" : "mois"}`;
+          return `il y a ${months} mois`;
         }
-        return `il y a ${months} ${
-          months === 1 ? "mois" : "mois"
-        } et ${days} jrs`;
+        return `il y a ${months} mois et ${days} jrs`;
       }
 
       return `il y a ${months} mois`;
@@ -451,6 +366,10 @@
       case "inseree_dans_decret":
         return decretDate || (decretId && index === currentIndex ? dateStatut : null);
       case "ceremonie_naturalisation":
+      case "recours_envoye":
+      case "recours_statut_courant":
+      case "recours_decision_prise":
+      case "demande_en_cours_rapo":
         return index === currentIndex ? dateStatut : null;
       default:
         return index === currentIndex ? dateStatut : null;
@@ -954,7 +873,7 @@ const STATUTS = {
       explication: "Validé, prêt pour insertion au décret",
       etape: 11,
       rang: 1107,
-      description: "Votre dossier est validé et prêt pour être inséré dans le prochain décret de naturalisation. La décision favorable a été signée par le Ministre !",
+      description: "Votre dossier est validé et prêt pour insertion dans le prochain décret. Le passage automatique au statut suivant a lieu chaque lundi entre 9h et 11h — inutile de rafraîchir le week-end.",
       icon: "✅"
     },
     "decret_en_preparation": {
@@ -1015,7 +934,7 @@ const STATUTS = {
       explication: "Décret publié au Journal Officiel",
       etape: 13,
       rang: 1301,
-      description: "FÉLICITATIONS ! Votre décret de naturalisation est publié au Journal Officiel de la République Française. Vous êtes officiellement citoyen(ne) français(e) !",
+      description: "FÉLICITATIONS ! Votre décret de naturalisation est publié au Journal Officiel de la République Française. Vous êtes officiellement citoyen(ne) français(e) ! Demandez votre acte de naissance français (ADN) au SCEC pour commencer vos démarches CNI et passeport.",
       icon: "🇫🇷"
     },
     "decret_naturalisation_publie_jo": {
@@ -1023,7 +942,7 @@ const STATUTS = {
       explication: "Décret publié au Journal Officiel",
       etape: 13,
       rang: 1302,
-      description: "FÉLICITATIONS ! Votre décret de naturalisation est publié au Journal Officiel. Vous êtes officiellement français(e) ! La préfecture vous convoquera pour la cérémonie.",
+      description: "FÉLICITATIONS ! Votre décret de naturalisation est publié au Journal Officiel. Vous êtes officiellement français(e) ! La préfecture vous convoquera pour la cérémonie. Demandez votre ADN au SCEC pour vos démarches CNI / passeport.",
       icon: "🇫🇷"
     },
     "decret_publie": {
@@ -1031,7 +950,7 @@ const STATUTS = {
       explication: "Décret publié",
       etape: 13,
       rang: 1303,
-      description: "FÉLICITATIONS ! Votre décret de naturalisation est publié. Vous êtes officiellement citoyen(ne) français(e) ! La préfecture vous convoquera pour la cérémonie d'accueil.",
+      description: "FÉLICITATIONS ! Votre décret de naturalisation est publié. Vous êtes officiellement citoyen(ne) français(e) ! La préfecture vous convoquera pour la cérémonie d'accueil. Demandez votre ADN au SCEC, puis votre carte d'identité en mairie.",
       icon: "🇫🇷"
     },
     "demande_traitee": {
@@ -1148,6 +1067,12 @@ const STATUTS = {
       subtitle: "Naturalisation, refus, recours ou classement sans suite",
       etapes: [13],
     },
+    {
+      key: "recours",
+      label: "Recours",
+      subtitle: "Décision défavorable, RAPO et issue du recours",
+      etapes: [13],
+    },
   ];
 
   function buildTrackingSteps() {
@@ -1181,9 +1106,15 @@ const STATUTS = {
       { key: "decision_prise", code: "inseree_dans_decret", group: "publication", milestone: true, title: "Décision prise" },
       { key: "decret_envoye_prefecture", code: "decret_envoye_prefecture", group: "publication", title: "Décret envoyé à la préfecture" },
       { key: "notification_envoyee", code: "notification_envoyee", group: "publication", title: "Notification officielle envoyée" },
-      { key: "ceremonie_naturalisation", code: "decret_naturalisation_publie", group: "final", milestone: true, title: "Cérémonie de naturalisation" },
+      { key: "decret_naturalisation_publie", code: "decret_naturalisation_publie", group: "final", milestone: true, title: "Décret publié au Journal Officiel" },
+      { key: "ceremonie_naturalisation", group: "final", milestone: true, title: "Cérémonie de naturalisation" },
     ];
-    return [...prefecture, ...ministry];
+    const recours = [
+      { key: "recours_envoye", group: "recours", milestone: true, title: "Recours envoyé" },
+      { key: "recours_statut_courant", group: "recours", milestone: true, title: "Statut en cours", dynamicTitle: true },
+      { key: "recours_decision_prise", group: "recours", milestone: true, title: "Décision prise" },
+    ];
+    return [...prefecture, ...ministry, ...recours];
   }
 
   function getStatusGroupLabel(etape) {
@@ -1194,14 +1125,78 @@ const STATUTS = {
       decret: "Décret",
       publication: "Décret",
       final: "Décision",
+      recours: "Recours",
     };
     const group = STEP_GROUPS.find((entry) => entry.etapes.includes(etape));
     return group ? labels[group.key] || group.label : null;
   }
 
+  const NEGATIVE_DECISION_STATUS_CODES = new Set([
+    "decision_negative_en_delais_recours",
+    "decision_notifiee",
+    "demande_en_cours_rapo",
+    "controle_demande_notifiee",
+    "irrecevabilite_manifeste",
+    "irrecevabilite_manifeste_en_delais_recours",
+    "css_en_delais_recours",
+    "css_notifie",
+  ]);
+
+  const RECOURS_OPEN_STATUS_CODES = new Set([
+    "decision_negative_en_delais_recours",
+    "irrecevabilite_manifeste_en_delais_recours",
+    "css_en_delais_recours",
+  ]);
+
+  const RECOURS_FINAL_STATUS_CODES = new Set([
+    "decision_notifiee",
+    "controle_demande_notifiee",
+    "irrecevabilite_manifeste",
+    "css_notifie",
+  ]);
+
+  function normalizeStatusCode(statusCode) {
+    return String(statusCode || "").trim().toLowerCase();
+  }
+
+  function isNegativeDecisionStatus(statusCode) {
+    return NEGATIVE_DECISION_STATUS_CODES.has(normalizeStatusCode(statusCode));
+  }
+
+  function isFinalRecoursStatus(statusCode) {
+    return RECOURS_FINAL_STATUS_CODES.has(normalizeStatusCode(statusCode));
+  }
+
+  function getStepIndexByKey(stepKey) {
+    return TRACKING_STEPS.findIndex((step) => step.key === stepKey);
+  }
+
+  function inferRecoursTrackingIndex(statusCode) {
+    const code = normalizeStatusCode(statusCode);
+    if (isFinalRecoursStatus(code)) {
+      return getStepIndexByKey("recours_decision_prise");
+    }
+    if (!RECOURS_OPEN_STATUS_CODES.has(code)) {
+      return getStepIndexByKey("recours_statut_courant");
+    }
+    return getStepIndexByKey("recours_envoye");
+  }
+
   function inferTrackingIndex(statusCode) {
-    const code = String(statusCode || "").trim().toLowerCase();
+    const code = normalizeStatusCode(statusCode);
     if (!code || code === "-" || code === "code_non_reconnu") return 0;
+
+    if (isNegativeDecisionStatus(code)) {
+      return inferRecoursTrackingIndex(code);
+    }
+
+    const STATUS_STEP_ALIASES = {
+      decret_naturalisation_publie_jo: "decret_naturalisation_publie",
+      decret_publie: "decret_naturalisation_publie",
+    };
+    const aliasedCode = STATUS_STEP_ALIASES[code] || code;
+    const exactIndex = TRACKING_STEPS.findIndex((step) => step.code === aliasedCode);
+    if (exactIndex >= 0) return exactIndex;
 
     const info = STATUTS[code];
     if (!info) {
@@ -1239,7 +1234,11 @@ const STATUTS = {
     return "pending";
   }
 
-  function formatTrackingStepTitle(step) {
+  function formatTrackingStepTitle(step, apiInfos = null) {
+    if (step.dynamicTitle && apiInfos) {
+      const code = normalizeStatusCode(apiInfos.statutCode);
+      return STATUTS[code]?.explication || apiInfos.statutDescription || step.title;
+    }
     return step.title;
   }
 
@@ -1259,22 +1258,39 @@ const STATUTS = {
   const TRACKING_STEPS = buildTrackingSteps();
 
   const prefectureEndIndex = TRACKING_STEPS.findLastIndex((step) => step.group === "prefecture");
-  const MACRO_PHASES = [
-    {
+  const ministryEndIndex = TRACKING_STEPS.findLastIndex(
+    (step) => !["prefecture", "recours"].includes(step.group)
+  );
+  const recoursStartIndex = TRACKING_STEPS.findIndex((step) => step.group === "recours");
+  const recoursEndIndex = TRACKING_STEPS.findLastIndex((step) => step.group === "recours");
+  const PREFECTURE_MACRO_PHASE = {
       key: "prefecture",
       title: STEP_GROUPS.find((group) => group.key === "prefecture").label,
       subtitle: STEP_GROUPS.find((group) => group.key === "prefecture").subtitle,
       startIndex: 0,
       endIndex: prefectureEndIndex,
-    },
-    {
+  };
+  const MINISTRY_MACRO_PHASE = {
       key: "ministere",
       title: "SDANF & SCEC",
       subtitle: "Contrôles SDANF, validation SCEC, décret et publication",
       startIndex: prefectureEndIndex + 1,
-      endIndex: TRACKING_STEPS.length - 1,
-    },
-  ];
+      endIndex: ministryEndIndex,
+  };
+  const RECOURS_MACRO_PHASE = {
+      key: "recours",
+      title: "Recours",
+      subtitle: "Décision défavorable, RAPO et issue du recours",
+      startIndex: recoursStartIndex,
+      endIndex: recoursEndIndex,
+  };
+
+  function getMacroPhases(statusCode) {
+    return [
+      PREFECTURE_MACRO_PHASE,
+      isNegativeDecisionStatus(statusCode) ? RECOURS_MACRO_PHASE : MINISTRY_MACRO_PHASE,
+    ];
+  }
 
 
 
@@ -1292,14 +1308,14 @@ const STATUTS = {
     return "pending";
   }
 
-  function getMacroProgressPct(currentIndex) {
-    const prefectureEnd = MACRO_PHASES[0].endIndex + 1;
-    const sdanfSteps = MACRO_PHASES[1].endIndex - MACRO_PHASES[1].startIndex + 1;
-    if (currentIndex < MACRO_PHASES[1].startIndex) {
+  function getMacroProgressPct(currentIndex, macroPhases) {
+    const prefectureEnd = macroPhases[0].endIndex + 1;
+    const secondPhaseSteps = macroPhases[1].endIndex - macroPhases[1].startIndex + 1;
+    if (currentIndex < macroPhases[1].startIndex) {
       return Math.round(((currentIndex + 1) / prefectureEnd) * 50);
     }
-    const sdanfProgress = currentIndex - MACRO_PHASES[1].startIndex + 1;
-    return 50 + Math.round((sdanfProgress / sdanfSteps) * 50);
+    const secondPhaseProgress = currentIndex - macroPhases[1].startIndex + 1;
+    return 50 + Math.round((secondPhaseProgress / secondPhaseSteps) * 50);
   }
 
   function createMacroStatusIcon(state) {
@@ -1376,7 +1392,7 @@ const STATUTS = {
 
     const title = document.createElement("p");
     title.className = "anf-track-step-title";
-    title.textContent = formatTrackingStepTitle(step);
+    title.textContent = formatTrackingStepTitle(step, apiInfos);
     copy.appendChild(title);
 
     item.appendChild(track);
@@ -1483,7 +1499,12 @@ const STATUTS = {
       traitement_scec: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>`,
       traitement_sdanf_2: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="m16 8 4 4-4 4"></path></svg>`,
       decision_prise: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2Z"></path><path d="m22 6-10 7L2 6"></path></svg>`,
+      decret_naturalisation_publie: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" x2="4" y1="22" y2="15"></line></svg>`,
       ceremonie_naturalisation: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8.5" cy="10" r="2"></circle><path d="M6 16c.7-1.4 1.5-2 2.5-2s1.8.6 2.5 2"></path><path d="M14 9h4"></path><path d="M14 13h4"></path><path d="M14 17h3"></path></svg>`,
+      demande_en_cours_rapo: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="M7 21h10"></path><path d="M12 3v18"></path><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"></path></svg>`,
+      recours_envoye: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7Z"></path></svg>`,
+      recours_statut_courant: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="M7 21h10"></path><path d="M12 3v18"></path><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"></path></svg>`,
+      recours_decision_prise: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2Z"></path><path d="m22 6-10 7L2 6"></path></svg>`,
     };
     const iconByGroup = {
       sdanf: "traitement_sdanf_1",
@@ -1491,6 +1512,7 @@ const STATUTS = {
       decret: "traitement_sdanf_2",
       publication: "decision_prise",
       final: "ceremonie_naturalisation",
+      recours: "demande_en_cours_rapo",
     };
 
     const icon = document.createElement("span");
@@ -2063,7 +2085,6 @@ const STATUTS = {
   function appendStepDetails(item, stepKey, index, currentIndex, apiInfos) {
     const {
       statutDescription: dossierStatus,
-      statutCode: dossierStatusCode,
       dateStatut,
       dateStatutRelative,
       demandeDate,
@@ -2222,15 +2243,19 @@ const STATUTS = {
     injectRecreatedStepperCss();
 
     const inferredIndex = inferTrackingIndex(apiInfos.statutCode);
-    const finalStepIndex = TRACKING_STEPS.findIndex(
-      (step) => step.code === "decret_naturalisation_publie" || step.key === "ceremonie_naturalisation"
+    const ceremonyStepIndex = TRACKING_STEPS.findIndex(
+      (step) => step.key === "ceremonie_naturalisation"
     );
-    const currentIndex = Math.min(
-      TRACKING_STEPS.length - 1,
-      apiInfos.decretId
-        ? Math.max(inferredIndex, finalStepIndex >= 0 ? finalStepIndex : TRACKING_STEPS.length - 1)
-        : inferredIndex
-    );
+    const isNegativeStatus = isNegativeDecisionStatus(apiInfos.statutCode);
+    let currentIndex = inferredIndex;
+    if (
+      apiInfos.decretId &&
+      ceremonyStepIndex >= 0 &&
+      !isNegativeStatus
+    ) {
+      currentIndex = Math.max(inferredIndex, ceremonyStepIndex);
+    }
+    currentIndex = Math.min(TRACKING_STEPS.length - 1, currentIndex);
 
     let root = document.getElementById("anf-extension-stepper-root");
     if (!root) {
@@ -2239,15 +2264,16 @@ const STATUTS = {
       header.insertAdjacentElement("afterend", root);
     }
 
-    const progressPct = getMacroProgressPct(currentIndex);
+    const macroPhases = getMacroPhases(apiInfos.statutCode);
+    const progressPct = getMacroProgressPct(currentIndex, macroPhases);
     const currentStep = TRACKING_STEPS[currentIndex];
-    const currentStepTitle = currentStep ? formatTrackingStepTitle(currentStep) : "";
+    const currentStepTitle = currentStep ? formatTrackingStepTitle(currentStep, apiInfos) : "";
     const longDescription = getStatusLongDescription(apiInfos.statutCode);
     const currentPhase =
-      MACRO_PHASES.find(
+      macroPhases.find(
         (phase) =>
           currentIndex >= phase.startIndex && currentIndex <= phase.endIndex
-      ) || MACRO_PHASES[MACRO_PHASES.length - 1];
+      ) || macroPhases[macroPhases.length - 1];
 
     root.innerHTML = `
       <div class="anf-stepper-inner">
@@ -2275,11 +2301,11 @@ const STATUTS = {
     list.classList.add("anf-macro-track");
 
     const trackFragment = document.createDocumentFragment();
-    MACRO_PHASES.forEach((phase, phaseIndex) => {
+    macroPhases.forEach((phase, phaseIndex) => {
       trackFragment.appendChild(
         buildMacroPhaseBlock(phase, currentIndex, apiInfos)
       );
-      if (phaseIndex < MACRO_PHASES.length - 1) {
+      if (phaseIndex < macroPhases.length - 1) {
         const connector = document.createElement("div");
         connector.className = "anf-macro-connector";
         if (currentIndex > phase.endIndex) {
