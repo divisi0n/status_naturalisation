@@ -33,5 +33,5 @@ Et voilà, l'extension est installé et utilisable sur ton Chrome 🎉
 
 <h1>Solution altérnative 2 : Décodeur ANEF</h1>
 
-<a href="https://chromewebstore.google.com/detail/d%C3%A9codeur-anef/pjoihdhlbdlgdiamkfdddkkcdpghmaed">Installer depuis le Chrome Web Store</a> — installation en un clic + alertes <br/> (source : [https://github.com/Letranger-dev/anef-extension](https://naturalisation-facile.fr/installer-extension-decodeur-anef))
+<a href="https://chromewebstore.google.com/detail/d%C3%A9codeur-anef/pjoihdhlbdlgdiamkfdddkkcdpghmaed">Installer depuis le Chrome Web Store</a> — installation en un clic + alertes <br/> (source : [https://naturalisation-facile.fr/installer-extension-decodeur-anef](https://naturalisation-facile.fr/installer-extension-decodeur-anef))
 
