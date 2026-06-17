@@ -28,6 +28,10 @@ Et voilà, l'extension est installé et utilisable sur ton Chrome 🎉
  <img width="1238" height="719" alt="image" src="https://github.com/user-attachments/assets/765a1518-9072-4182-ad56-58ab22a88200" />
 
 
-<h1>Solution altérnative : ANEF Status Tracker </h1>
+<h1>Solution altérnative 1 : ANEF Status Tracker </h1>
 <a href="https://chromewebstore.google.com/detail/anef-status-tracker/icnpklneeaiffilemaflccdejefpehek">Installer depuis le Chrome Web Store</a> — installation en un clic, mises à jour automatiques <br/> (source : https://github.com/Letranger-dev/anef-extension)
+
+<h1>Solution altérnative 2 : Décodeur ANEF</h1>
+
+<a href="https://chromewebstore.google.com/detail/d%C3%A9codeur-anef/pjoihdhlbdlgdiamkfdddkkcdpghmaed">Installer depuis le Chrome Web Store</a> — installation en un clic + alertes <br/> (source : [https://github.com/Letranger-dev/anef-extension](https://naturalisation-facile.fr/installer-extension-decodeur-anef))
 
