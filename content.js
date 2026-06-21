@@ -15,6 +15,13 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  function prefersReducedMotion() {
+    return Boolean(
+      window.matchMedia &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+  }
+
   function isOAuthCallback() {
     const href = window.location.href;
     return /(?:^|[?#&])code=/.test(href) && /session_state=/.test(href);
@@ -86,7 +93,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.6.4";
+  const extensionVersion = "3.6.5";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -135,7 +142,7 @@
   function getStatusDescription(status) {
     const info = STATUTS[status];
     if (info) {
-      const prefix = getStatusGroupLabel(info.etape);
+      const prefix = getStatusGroupLabel(info.etape, status);
       return prefix ? `${prefix} : ${info.explication}` : info.explication;
     }
 
@@ -163,48 +170,6 @@
 
     return statusMap[status] || status || statusMap["code_non_reconnu"];
   }
-
-  function daysAgo(dateString) {
-      const inputDate = new Date(dateString);
-      const currentDate = new Date();
-      const diffInDays = Math.floor(
-        (currentDate - inputDate) / (1000 * 60 * 60 * 24)
-      );
-
-      if (diffInDays === 0) {
-        const hours = String(inputDate.getHours()).padStart(2, "0");
-        const minutes = String(inputDate.getMinutes()).padStart(2, "0");
-        return `Aujourd'hui à ${hours}h${minutes}`;
-      }
-      if (diffInDays === 1) {
-        const hours = String(inputDate.getHours()).padStart(2, "0");
-        const minutes = String(inputDate.getMinutes()).padStart(2, "0");
-        return `Hier à ${hours}h${minutes}`;
-      }
-      if (diffInDays <= 30) return `il y a ${diffInDays} jrs`;
-
-      const years = Math.floor(diffInDays / 365);
-      const months = Math.floor((diffInDays % 365) / 30);
-      const days = diffInDays % 30;
-
-      if (years >= 1) {
-        if (months === 0) {
-          return `il y a ${years} ${years === 1 ? "an" : "ans"}`;
-        }
-        return `il y a ${years} ${
-          years === 1 ? "an" : "ans"
-        } et ${months} mois`;
-      }
-
-      if (months >= 1) {
-        if (days === 0) {
-          return `il y a ${months} mois`;
-        }
-        return `il y a ${months} mois et ${days} jrs`;
-      }
-
-      return `il y a ${months} mois`;
-    }
 
   function formatDate(dateString) {
     if (!dateString) return "";
@@ -234,16 +199,25 @@
       return `${diffDays} jrs`;
     }
 
-    const months = Math.floor(diffDays / 30);
+    let months = Math.floor(diffDays / 30);
     const days = diffDays % 30;
+    const years = Math.floor(months / 12);
+    months = months % 12;
 
-    if (months >= 1 && days > 0) {
-      return `${months} mois et ${days} jrs`;
+    const parts = [];
+    if (years > 0) {
+      parts.push(`${years} ${years === 1 ? "an" : "ans"}`);
     }
-    if (months >= 1) {
-      return `${months} mois`;
+    if (months > 0) {
+      parts.push(`${months} mois`);
     }
-    return `${diffDays} jrs`;
+    if (days > 0) {
+      parts.push(`${days} jrs`);
+    }
+
+    if (parts.length === 1) return parts[0];
+    if (parts.length === 2) return `${parts[0]} et ${parts[1]}`;
+    return `${parts[0]} et ${parts[1]} et ${parts[2]}`;
   }
 
   function pickFirstRawDate(...values) {
@@ -439,7 +413,6 @@
       statutCode: dossierStatusCode,
       statutDescription: dossierStatus,
       dateStatut: data.dossier.date_statut,
-      dateStatutRelative: daysAgo(data.dossier.date_statut),
       demandeDate: null,
       complementInstructionDate: null,
       complementDepotDate: null,
@@ -565,7 +538,7 @@
     );
     console.log("Statut code:", apiInfos.statutCode);
     console.log("Statut description:", apiInfos.statutDescription);
-    console.log("Date statut:", apiInfos.dateStatut, `(${apiInfos.dateStatutRelative})`);
+    console.log("Date statut:", apiInfos.dateStatut);
     console.log("ID dossier:", apiInfos.idDossier);
     console.log("Date demande:", apiInfos.demandeDate || "—");
     console.log("Complément instruction:", apiInfos.complementInstructionDate || "—");
@@ -592,7 +565,7 @@
   }
 
 const STATUTS = {
-    // ── Étape 1 : Brouillon ──────────────────────────────────────
+    // ── Étape 1 : Brouillon ──────
     "draft": {
       phase: "Brouillon",
       explication: "Dossier en brouillon",
@@ -602,7 +575,7 @@ const STATUTS = {
       icon: "📝"
     },
   
-    // ── Étape 2 : Dépôt du dossier ───────────────────────────────
+    // ── Étape 2 : Dépôt du dossier 
     "dossier_depose": {
       phase: "Dépôt",
       explication: "Dossier déposé",
@@ -612,7 +585,7 @@ const STATUTS = {
       icon: "📨"
     },
   
-    // ── Étape 3 : Vérification formelle ──────────────────────────
+    // ── Étape 3 : Vérification formelle ──
     "verification_formelle_a_traiter": {
       phase: "Vérification formelle",
       explication: "Dossier reçu, en tri",
@@ -654,7 +627,7 @@ const STATUTS = {
       icon: "⚠️"
     },
   
-    // ── Étape 4 : Affectation instructeur ────────────────────────
+    // ── Étape 4 : Affectation instructeur 
     "instruction_a_affecter": {
       phase: "Affectation",
       explication: "Dossier recevable, attente d'affectation",
@@ -664,7 +637,7 @@ const STATUTS = {
       icon: "👤"
     },
   
-    // ── Étape 5 : Instruction du dossier ─────────────────────────
+    // ── Étape 5 : Instruction du dossier ─
     "instruction_recepisse_completude_a_envoyer": {
       phase: "Instruction",
       explication: "Dossier complet, examen approfondi",
@@ -714,7 +687,7 @@ const STATUTS = {
       icon: "⚠️"
     },
   
-    // ── Étape 6 : Complétude & enquêtes ──────────────────────────
+    // ── Étape 6 : Complétude & enquêtes ──
     "instruction_date_ea_a_fixer": {
       phase: "Complétude & enquêtes",
       explication: "Enquêtes administratives lancées",
@@ -732,7 +705,7 @@ const STATUTS = {
       icon: "🔄"
     },
   
-    // ── Étape 7 : Entretien d'assimilation ───────────────────────
+    // ── Étape 7 : Entretien d'assimilation 
     "ea_en_attente_ea": {
       phase: "Entretien d'assimilation",
       explication: "Convocation envoyée, en attente",
@@ -750,7 +723,7 @@ const STATUTS = {
       icon: "✅"
     },
   
-    // ── Étape 8 : Décision préfecture ────────────────────────────
+    // ── Étape 8 : Décision préfecture ────
     "prop_decision_pref_a_effectuer": {
       phase: "Décision préfecture",
       explication: "Avis préfectoral en cours",
@@ -784,7 +757,7 @@ const STATUTS = {
       icon: "✍️"
     },
   
-    // ── Étape 9 : Contrôle SDANF ────────────────────────────────
+    // ── Étape 9 : Contrôle SDANF 
     "controle_a_affecter": {
       phase: "Contrôle SDANF",
       explication: "Arrivé à la SDANF, attente affectation",
@@ -801,7 +774,7 @@ const STATUTS = {
       description: "Un agent de la SDANF contrôle votre dossier : vérification des pièces d'état civil, cohérence des informations, respect des conditions légales. Cette étape peut prendre plusieurs semaines.",
       icon: "📑"
     },
-    // ── Étape 10 : Contrôle SCEC ────────────────────────────────
+    // ── Étape 10 : Contrôle SCEC 
     "controle_en_attente_pec": {
       phase: "Contrôle SCEC",
       explication: "Transmis au SCEC de Nantes",
@@ -819,7 +792,7 @@ const STATUTS = {
       icon: "✔️"
     },
   
-    // ── Étape 11 : Préparation décret ────────────────────────────
+    // ── Étape 11 : Préparation décret ────
     "controle_transmise_pour_decret": {
       phase: "Préparation décret",
       explication: "Avis FAVORABLE, transmis pour décret",
@@ -901,7 +874,7 @@ const STATUTS = {
       icon: "📋"
     },
   
-    // ── Étape 12 : Publication JO ────────────────────────────────
+    // ── Étape 12 : Publication JO 
     "inseree_dans_decret": {
       phase: "Publication JO",
       explication: "Inséré dans un décret signé",
@@ -927,7 +900,7 @@ const STATUTS = {
       icon: "📬"
     },
   
-    // ── Étape 13 : Décision finale ───────────────────────────────
+    // ── Étape 13 : Décision finale 
     // Décisions positives
     "decret_naturalisation_publie": {
       phase: "NATURALISÉ(E)",
@@ -1117,7 +1090,7 @@ const STATUTS = {
     return [...prefecture, ...ministry, ...recours];
   }
 
-  function getStatusGroupLabel(etape) {
+  function getStatusGroupLabel(etape, statusCode) {
     const labels = {
       prefecture: "Préfecture",
       sdanf: "SDANF",
@@ -1127,6 +1100,12 @@ const STATUTS = {
       final: "Décision",
       recours: "Recours",
     };
+    // Étape 13 est partagée entre les groupes "final" et "recours" : on
+    // désambiguïse à partir du code de statut pour éviter de préfixer une
+    // décision défavorable / recours avec le libellé "Décision".
+    if (statusCode && isNegativeDecisionStatus(statusCode)) {
+      return labels.recours;
+    }
     const group = STEP_GROUPS.find((entry) => entry.etapes.includes(etape));
     return group ? labels[group.key] || group.label : null;
   }
@@ -1309,13 +1288,27 @@ const STATUTS = {
   }
 
   function getMacroProgressPct(currentIndex, macroPhases) {
-    const prefectureEnd = macroPhases[0].endIndex + 1;
-    const secondPhaseSteps = macroPhases[1].endIndex - macroPhases[1].startIndex + 1;
-    if (currentIndex < macroPhases[1].startIndex) {
-      return Math.round(((currentIndex + 1) / prefectureEnd) * 50);
+    const clamp = (value) => Math.max(0, Math.min(100, Math.round(value)));
+    const firstPhase = macroPhases[0];
+    const secondPhase = macroPhases[1];
+    const firstPhaseSteps = firstPhase.endIndex - firstPhase.startIndex + 1;
+    const secondPhaseSteps = secondPhase.endIndex - secondPhase.startIndex + 1;
+
+    if (currentIndex < secondPhase.startIndex) {
+      if (firstPhaseSteps <= 0) return 0;
+      const firstPhaseProgress = Math.min(
+        currentIndex - firstPhase.startIndex + 1,
+        firstPhaseSteps
+      );
+      return clamp((firstPhaseProgress / firstPhaseSteps) * 50);
     }
-    const secondPhaseProgress = currentIndex - macroPhases[1].startIndex + 1;
-    return 50 + Math.round((secondPhaseProgress / secondPhaseSteps) * 50);
+
+    if (secondPhaseSteps <= 0) return 50;
+    const secondPhaseProgress = Math.min(
+      currentIndex - secondPhase.startIndex + 1,
+      secondPhaseSteps
+    );
+    return clamp(50 + (secondPhaseProgress / secondPhaseSteps) * 50);
   }
 
   function createMacroStatusIcon(state) {
@@ -1350,10 +1343,12 @@ const STATUTS = {
       lineInDone = false,
       lineOutDone = false,
       lineInDuration = null,
+      lineInDurationIsStatus = false,
     } = railMeta;
     const state = getStepState(step, index, currentIndex);
     const item = document.createElement("div");
     item.className = `anf-track-step is-${state}`;
+    if (lineInDuration) item.classList.add("has-duration");
     item.setAttribute("role", "listitem");
     item.dataset.stepKey = step.key;
 
@@ -1382,7 +1377,11 @@ const STATUTS = {
       track.setAttribute("title", `Durée : ${lineInDuration}`);
       const durationEl = document.createElement("span");
       durationEl.className = "anf-step-duration";
-      if (lineInDone) durationEl.classList.add("is-done");
+      if (lineInDurationIsStatus) {
+        durationEl.classList.add("is-status-time");
+      } else if (lineInDone) {
+        durationEl.classList.add("is-done");
+      }
       durationEl.textContent = lineInDuration;
       track.appendChild(durationEl);
     }
@@ -1452,16 +1451,26 @@ const STATUTS = {
       const isFirst = visibleOffset === 0;
       const isLast = visibleOffset === visibleSteps.length - 1;
       const prev = !isFirst ? visibleSteps[visibleOffset - 1] : null;
-      const lineInDuration = prev
-        ? getDurationBetweenSteps(
+      let lineInDuration = null;
+      let lineInDurationIsStatus = false;
+      if (prev) {
+        if (index === currentIndex && apiInfos.dateStatut) {
+          lineInDuration = formatDurationBetween(
+            parseAnchorDate(apiInfos.dateStatut),
+            new Date()
+          );
+          lineInDurationIsStatus = Boolean(lineInDuration);
+        } else {
+          lineInDuration = getDurationBetweenSteps(
             prev.step,
             prev.index,
             step,
             index,
             currentIndex,
             apiInfos
-          )
-        : null;
+          );
+        }
+      }
 
       stepper.appendChild(
         buildTrackStepItem(step, index, currentIndex, apiInfos, {
@@ -1470,6 +1479,7 @@ const STATUTS = {
           lineInDone: !isFirst && index <= currentIndex,
           lineOutDone: !isLast && index < currentIndex,
           lineInDuration,
+          lineInDurationIsStatus,
         })
       );
     });
@@ -1559,12 +1569,14 @@ const STATUTS = {
         --anf-muted: #666;
         --anf-line: #e5e5e5;
         --anf-surface: #ffffff;
+        width: 100%;
         font-family: inherit;
         background: #f8f8fc;
         border-bottom: 1px solid var(--anf-line);
       }
       #anf-extension-stepper-root .anf-stepper-inner {
         position: relative;
+        width: 100%;
         max-width: 1240px;
         margin: 0 auto;
         padding: 10px 14px 12px;
@@ -1611,6 +1623,10 @@ const STATUTS = {
         gap: 3px;
         flex: 1;
         min-width: 0;
+      }
+      .anf-track-progress-copy > span {
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
       .anf-track-progress-desc {
         margin: 0;
@@ -1730,6 +1746,7 @@ const STATUTS = {
       .anf-macro-content {
         flex: 1;
         min-width: 0;
+        width: 100%;
       }
       .anf-macro-head {
         display: flex;
@@ -1779,16 +1796,31 @@ const STATUTS = {
         display: flex;
         justify-content: center;
         width: 100%;
+        max-width: 100%;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: thin;
+        scrollbar-color: #c5c5d8 transparent;
+      }
+      .anf-phase-stepper-wrap::-webkit-scrollbar {
+        height: 6px;
+      }
+      .anf-phase-stepper-wrap::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .anf-phase-stepper-wrap::-webkit-scrollbar-thumb {
+        background: #c5c5d8;
+        border-radius: 999px;
+      }
+      .anf-phase-stepper-wrap::-webkit-scrollbar-thumb:hover {
+        background: #a5a5c0;
       }
       .anf-phase-stepper {
         display: flex;
         align-items: flex-start;
         justify-content: center;
         flex: 0 1 auto;
-        width: max-content;
+        width: fit-content;
         max-width: 100%;
         margin: 0 auto;
         padding: 14px 0 4px;
@@ -1832,19 +1864,28 @@ const STATUTS = {
         top: 50%;
         z-index: 2;
         transform: translate(-50%, calc(-100% - 5px));
+        max-width: 96px;
         padding: 1px 5px;
         border-radius: 4px;
         background: #f0f0f8;
+        box-shadow: 0 0 0 2px var(--anf-surface);
         color: #5c5c78;
         font-size: 8.5px;
         font-weight: 700;
         line-height: 1.2;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         pointer-events: none;
       }
       .anf-step-duration.is-done {
         background: #eef0ff;
         color: #3b3b9e;
+      }
+      .anf-step-duration.is-status-time {
+        background: rgba(225, 0, 15, 0.06);
+        color: var(--anf-rouge);
+        font-weight: 600;
       }
       .anf-step-node {
         position: relative;
@@ -1928,7 +1969,7 @@ const STATUTS = {
         font-weight: 700;
         line-height: 1.35;
         color: var(--anf-ink);
-        word-break: break-word;
+        overflow-wrap: anywhere;
       }
       .anf-track-step.is-done .anf-track-step-title {
         color: var(--anf-bleu);
@@ -1961,7 +2002,7 @@ const STATUTS = {
         line-height: 1.35;
         text-align: center;
         white-space: normal;
-        word-break: break-word;
+        overflow-wrap: anywhere;
       }
       .anf-track-step-detail.is-date {
         color: #5c5c78;
@@ -1980,11 +2021,6 @@ const STATUTS = {
       .anf-track-step.is-current .anf-track-step-detail.is-status-card {
         border-color: rgba(225, 0, 15, 0.18);
         background: #fff;
-      }
-      .anf-track-step-detail.is-status-time {
-        color: var(--anf-rouge);
-        font-size: 9px;
-        font-weight: 600;
       }
       .anf-track-step-detail.is-decret-card {
         padding: 5px 6px;
@@ -2034,11 +2070,52 @@ const STATUTS = {
         font-weight: 500;
         white-space: nowrap;
       }
+      @media (max-width: 900px) {
+        #anf-extension-stepper-root .anf-stepper-inner {
+          padding: 9px 10px 11px;
+        }
+        .anf-macro-block-inner {
+          gap: 12px;
+          padding: 14px;
+          border-radius: 10px;
+        }
+        .anf-phase-stepper {
+          justify-content: flex-start;
+        }
+        .anf-phase-stepper .anf-track-step {
+          flex-basis: 128px;
+          width: 128px;
+          min-width: 104px;
+          max-width: 140px;
+        }
+      }
       @media (max-width: 640px) {
+        #anf-extension-stepper-root .anf-stepper-inner {
+          padding: 8px 8px 10px;
+        }
+        .anf-track-progress-meta {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 5px;
+        }
+        .anf-track-progress-meta > span:last-child {
+          align-self: flex-start;
+        }
         .anf-macro-block-inner {
           flex-direction: column;
           gap: 12px;
-          padding: 14px;
+          padding: 12px;
+          border-width: 1px;
+        }
+        .anf-macro-head {
+          align-items: flex-start;
+        }
+        .anf-macro-badge {
+          padding: 3px 8px;
+          font-size: 9px;
+        }
+        .anf-macro-subtitle {
+          margin-bottom: 10px;
         }
         .anf-macro-status-icon {
           flex: 0 0 40px;
@@ -2046,16 +2123,71 @@ const STATUTS = {
           height: 40px;
         }
         .anf-macro-title { font-size: 15px; }
+        .anf-phase-stepper-wrap {
+          display: block;
+          overflow-x: visible;
+        }
+        .anf-phase-stepper {
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+          width: 100%;
+          max-width: none;
+          padding: 4px 0 0;
+        }
         .anf-phase-stepper .anf-track-step {
-          flex: 0 1 120px;
-          width: 120px;
-          min-width: 96px;
-          max-width: 128px;
+          position: relative;
+          flex: 0 0 auto;
+          width: 100%;
+          min-width: 0;
+          max-width: none;
+          display: grid;
+          grid-template-columns: 32px minmax(0, 1fr);
+          column-gap: 10px;
+          padding: 0 0 12px;
+        }
+        .anf-phase-stepper .anf-track-step:last-child {
+          padding-bottom: 0;
+        }
+        .anf-step-track {
+          grid-column: 1;
+          grid-row: 1;
+          align-self: stretch;
+          justify-content: center;
+          width: 32px;
+          height: auto;
+          min-height: 46px;
+          flex-direction: column;
+        }
+        .anf-step-line {
+          width: 2px;
+          min-width: 0;
+          height: auto;
+          min-height: 8px;
+          flex: 1 1 0;
         }
         .anf-step-node {
           flex: 0 0 30px;
           width: 30px;
           height: 30px;
+        }
+        .anf-step-copy {
+          grid-column: 2;
+          grid-row: 1;
+          align-items: flex-start;
+          min-width: 0;
+          padding: 3px 0 0;
+          text-align: left;
+        }
+        .anf-track-step.has-duration .anf-step-copy {
+          padding-top: 17px;
+        }
+        .anf-track-step.is-current .anf-step-copy {
+          padding: 7px 8px;
+          margin-top: -3px;
+        }
+        .anf-track-step.is-current.has-duration .anf-step-copy {
+          padding-top: 21px;
         }
         .anf-track-step-icon svg {
           width: 14px;
@@ -2063,13 +2195,42 @@ const STATUTS = {
         }
         .anf-track-step-title {
           font-size: 10px;
+          text-align: left;
+        }
+        .anf-track-step.is-current .anf-track-step-title {
+          font-size: 10.5px;
         }
         .anf-track-step-detail {
           font-size: 9px;
+          text-align: left;
+        }
+        .anf-track-masked-row {
+          align-self: flex-start;
+          justify-content: flex-start;
+        }
+        .anf-track-step-detail.is-status-card,
+        .anf-track-step-detail.is-decret-card {
+          padding: 5px;
         }
         .anf-step-duration {
+          left: 42px;
+          top: 1px;
+          transform: none;
+          max-width: calc(100vw - 96px);
+          overflow: hidden;
+          text-overflow: ellipsis;
           font-size: 7.5px;
           padding: 1px 3px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #anf-extension-stepper-root *,
+        #anf-extension-stepper-root *::before,
+        #anf-extension-stepper-root *::after {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+          scroll-behavior: auto !important;
         }
       }
     `;
@@ -2086,7 +2247,6 @@ const STATUTS = {
     const {
       statutDescription: dossierStatus,
       dateStatut,
-      dateStatutRelative,
       demandeDate,
       complementInstructionDate,
       assimilationDate,
@@ -2146,9 +2306,6 @@ const STATUTS = {
     }
     if (isCurrent && !["decret_naturalisation_publie", "ceremonie_naturalisation", "decision_prise"].includes(stepKey)) {
       details.push({ text: dossierStatus, variant: "status-card" });
-      if (dateStatutRelative) {
-        details.push({ text: `(${dateStatutRelative})`, variant: "status-time" });
-      }
     }
     if (
       stepKey === "decret_naturalisation_publie" ||
@@ -2157,9 +2314,6 @@ const STATUTS = {
     ) {
       if (isCurrent) {
         details.push({ text: dossierStatus, variant: "status-card" });
-        if (dateStatutRelative) {
-          details.push({ text: `(${dateStatutRelative})`, variant: "status-time" });
-        }
       }
       if (decretId) {
         details.push({
@@ -2317,11 +2471,13 @@ const STATUTS = {
     });
     list.appendChild(trackFragment);
 
+    const scrollBehavior = prefersReducedMotion() ? "auto" : "smooth";
+
     requestAnimationFrame(() => {
-      const currentStep = list.querySelector(".anf-track-step.is-current");
-      if (currentStep) {
-        currentStep.scrollIntoView({
-          behavior: "smooth",
+      const currentStepEl = list.querySelector(".anf-track-step.is-current");
+      if (currentStepEl) {
+        currentStepEl.scrollIntoView({
+          behavior: scrollBehavior,
           block: "nearest",
           inline: "center",
         });
@@ -2329,7 +2485,7 @@ const STATUTS = {
         const currentBlock = list.querySelector(".anf-macro-block.is-current");
         if (currentBlock) {
           currentBlock.scrollIntoView({
-            behavior: "smooth",
+            behavior: scrollBehavior,
             block: "nearest",
           });
         }
