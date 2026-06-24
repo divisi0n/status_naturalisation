@@ -93,7 +93,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.6.5";
+  const extensionVersion = "3.6.6";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -336,6 +336,7 @@
       case "compte_rendu_assimilation":
         return index === currentIndex ? dateStatut : null;
       case "decision_prise":
+        return index === currentIndex ? dateStatut : null;
       case "decret_naturalisation_publie":
       case "inseree_dans_decret":
         return decretDate || (decretId && index === currentIndex ? dateStatut : null);
@@ -1066,7 +1067,7 @@ const STATUTS = {
       { key: "controle_a_effectuer", code: "controle_a_effectuer", group: "sdanf", title: "SDANF — Contrôle en cours" },
       { key: "traitement_scec", code: "controle_en_attente_pec", group: "scec", milestone: true, title: "Traitement en cours (SCEC)" },
       { key: "controle_pec_a_faire", code: "controle_pec_a_faire", group: "scec", title: "SCEC — Vérification en cours" },
-      { key: "traitement_sdanf_2", code: "controle_transmise_pour_decret", group: "decret", milestone: true, title: "Traitement en cours (SDANF)" },
+      { key: "decision_prise", code: "controle_transmise_pour_decret", group: "decret", milestone: true, title: "Décision prise" },
       { key: "controle_en_attente_retour_hierarchique", code: "controle_en_attente_retour_hierarchique", group: "decret", title: "Validation hiérarchique ministérielle" },
       { key: "controle_decision_a_editer", code: "controle_decision_a_editer", group: "decret", title: "Décision favorable, édition en cours" },
       { key: "controle_en_attente_signature", code: "controle_en_attente_signature", group: "decret", title: "Attente signature ministérielle" },
@@ -1076,7 +1077,7 @@ const STATUTS = {
       { key: "decret_en_preparation", code: "decret_en_preparation", group: "decret", title: "Décret en cours de préparation" },
       { key: "decret_a_qualifier", code: "decret_a_qualifier", group: "decret", title: "Décret en cours de qualification" },
       { key: "decret_en_validation", code: "decret_en_validation", group: "decret", title: "Décret en validation finale" },
-      { key: "decision_prise", code: "inseree_dans_decret", group: "publication", milestone: true, title: "Décision prise" },
+      { key: "inseree_dans_decret", code: "inseree_dans_decret", group: "publication", title: "Inséré dans un décret signé" },
       { key: "decret_envoye_prefecture", code: "decret_envoye_prefecture", group: "publication", title: "Décret envoyé à la préfecture" },
       { key: "notification_envoyee", code: "notification_envoyee", group: "publication", title: "Notification officielle envoyée" },
       { key: "decret_naturalisation_publie", code: "decret_naturalisation_publie", group: "final", milestone: true, title: "Décret publié au Journal Officiel" },
@@ -1507,8 +1508,8 @@ const STATUTS = {
       decision_prefecture: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="m16 8 4 4-4 4"></path></svg>`,
       traitement_sdanf_1: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="m16 8 4 4-4 4"></path></svg>`,
       traitement_scec: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>`,
-      traitement_sdanf_2: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="m16 8 4 4-4 4"></path></svg>`,
       decision_prise: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2Z"></path><path d="m22 6-10 7L2 6"></path></svg>`,
+      inseree_dans_decret: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2Z"></path><path d="m22 6-10 7L2 6"></path></svg>`,
       decret_naturalisation_publie: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" x2="4" y1="22" y2="15"></line></svg>`,
       ceremonie_naturalisation: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8.5" cy="10" r="2"></circle><path d="M6 16c.7-1.4 1.5-2 2.5-2s1.8.6 2.5 2"></path><path d="M14 9h4"></path><path d="M14 13h4"></path><path d="M14 17h3"></path></svg>`,
       demande_en_cours_rapo: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="M7 21h10"></path><path d="M12 3v18"></path><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"></path></svg>`,
@@ -1519,8 +1520,8 @@ const STATUTS = {
     const iconByGroup = {
       sdanf: "traitement_sdanf_1",
       scec: "traitement_scec",
-      decret: "traitement_sdanf_2",
-      publication: "decision_prise",
+      decret: "decision_prise",
+      publication: "inseree_dans_decret",
       final: "ceremonie_naturalisation",
       recours: "demande_en_cours_rapo",
     };
@@ -2304,13 +2305,13 @@ const STATUTS = {
         details.unshift({ text: statusDateLabel, variant: "date" });
       }
     }
-    if (isCurrent && !["decret_naturalisation_publie", "ceremonie_naturalisation", "decision_prise"].includes(stepKey)) {
+    if (isCurrent && !["decret_naturalisation_publie", "ceremonie_naturalisation", "inseree_dans_decret"].includes(stepKey)) {
       details.push({ text: dossierStatus, variant: "status-card" });
     }
     if (
       stepKey === "decret_naturalisation_publie" ||
       stepKey === "ceremonie_naturalisation" ||
-      stepKey === "decision_prise"
+      stepKey === "inseree_dans_decret"
     ) {
       if (isCurrent) {
         details.push({ text: dossierStatus, variant: "status-card" });
