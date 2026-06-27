@@ -1143,6 +1143,22 @@ const STATUTS = {
     return NEGATIVE_DECISION_STATUS_CODES.has(normalizeStatusCode(statusCode));
   }
 
+  function shouldHideCeremonyStep(statusCode) {
+    return isNegativeDecisionStatus(statusCode);
+  }
+
+  function getCeremonyStepIndex() {
+    return getStepIndexByKey("ceremonie_naturalisation");
+  }
+
+  function getMinistryEndIndex(statusCode) {
+    if (!shouldHideCeremonyStep(statusCode)) {
+      return ministryEndIndex;
+    }
+    const ceremonyIndex = getCeremonyStepIndex();
+    return ceremonyIndex > 0 ? ceremonyIndex - 1 : ministryEndIndex;
+  }
+
   function isFinalRecoursStatus(statusCode) {
     return RECOURS_FINAL_STATUS_CODES.has(normalizeStatusCode(statusCode));
   }
@@ -1266,10 +1282,13 @@ const STATUTS = {
   };
 
   function getMacroPhases(statusCode) {
-    return [
-      PREFECTURE_MACRO_PHASE,
-      isNegativeDecisionStatus(statusCode) ? RECOURS_MACRO_PHASE : MINISTRY_MACRO_PHASE,
-    ];
+    const secondPhase = isNegativeDecisionStatus(statusCode)
+      ? RECOURS_MACRO_PHASE
+      : {
+          ...MINISTRY_MACRO_PHASE,
+          endIndex: getMinistryEndIndex(statusCode),
+        };
+    return [PREFECTURE_MACRO_PHASE, secondPhase];
   }
 
 
@@ -1329,7 +1348,13 @@ const STATUTS = {
     return "pending";
   }
 
-  function shouldShowStepInStepper(step, index, currentIndex, phase) {
+  function shouldShowStepInStepper(step, index, currentIndex, phase, statusCode) {
+    if (
+      step.key === "ceremonie_naturalisation" &&
+      shouldHideCeremonyStep(statusCode)
+    ) {
+      return false;
+    }
     if (step.platform && index < currentIndex) return false;
     if (phase.key === "ministere" && !step.milestone && index !== currentIndex) {
       return false;
@@ -1445,7 +1470,13 @@ const STATUTS = {
     const visibleSteps = phaseSteps
       .map((step, offset) => ({ step, index: phase.startIndex + offset }))
       .filter(({ step, index }) =>
-        shouldShowStepInStepper(step, index, currentIndex, phase)
+        shouldShowStepInStepper(
+          step,
+          index,
+          currentIndex,
+          phase,
+          apiInfos.statutCode
+        )
       );
 
     visibleSteps.forEach(({ step, index }, visibleOffset) => {
@@ -1571,6 +1602,8 @@ const STATUTS = {
         --anf-line: #e5e5e5;
         --anf-surface: #ffffff;
         width: 100%;
+        max-width: 100%;
+        overflow-x: clip;
         font-family: inherit;
         background: #f8f8fc;
         border-bottom: 1px solid var(--anf-line);
@@ -1579,6 +1612,7 @@ const STATUTS = {
         position: relative;
         width: 100%;
         max-width: 1240px;
+        min-width: 0;
         margin: 0 auto;
         padding: 10px 14px 12px;
       }
@@ -1669,6 +1703,7 @@ const STATUTS = {
         gap: 16px;
         align-items: flex-start;
         width: 100%;
+        min-width: 0;
         padding: 16px 18px;
         border-radius: 12px;
         border: 2px solid #e3e3ef;
@@ -1754,6 +1789,7 @@ const STATUTS = {
         align-items: center;
         justify-content: space-between;
         gap: 12px;
+        flex-wrap: wrap;
         margin-bottom: 4px;
       }
       .anf-macro-title {
@@ -1798,7 +1834,9 @@ const STATUTS = {
         justify-content: center;
         width: 100%;
         max-width: 100%;
+        min-width: 0;
         overflow-x: auto;
+        overscroll-behavior-x: contain;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: thin;
         scrollbar-color: #c5c5d8 transparent;
@@ -2075,25 +2113,6 @@ const STATUTS = {
         #anf-extension-stepper-root .anf-stepper-inner {
           padding: 9px 10px 11px;
         }
-        .anf-macro-block-inner {
-          gap: 12px;
-          padding: 14px;
-          border-radius: 10px;
-        }
-        .anf-phase-stepper {
-          justify-content: flex-start;
-        }
-        .anf-phase-stepper .anf-track-step {
-          flex-basis: 128px;
-          width: 128px;
-          min-width: 104px;
-          max-width: 140px;
-        }
-      }
-      @media (max-width: 640px) {
-        #anf-extension-stepper-root .anf-stepper-inner {
-          padding: 8px 8px 10px;
-        }
         .anf-track-progress-meta {
           flex-direction: column;
           align-items: stretch;
@@ -2105,25 +2124,16 @@ const STATUTS = {
         .anf-macro-block-inner {
           flex-direction: column;
           gap: 12px;
-          padding: 12px;
-          border-width: 1px;
+          padding: 14px;
+          border-radius: 10px;
         }
         .anf-macro-head {
           align-items: flex-start;
-        }
-        .anf-macro-badge {
-          padding: 3px 8px;
-          font-size: 9px;
+          flex-wrap: wrap;
         }
         .anf-macro-subtitle {
           margin-bottom: 10px;
         }
-        .anf-macro-status-icon {
-          flex: 0 0 40px;
-          width: 40px;
-          height: 40px;
-        }
-        .anf-macro-title { font-size: 15px; }
         .anf-phase-stepper-wrap {
           display: block;
           overflow-x: visible;
@@ -2195,14 +2205,14 @@ const STATUTS = {
           height: 14px;
         }
         .anf-track-step-title {
-          font-size: 10px;
+          font-size: 11px;
           text-align: left;
         }
         .anf-track-step.is-current .anf-track-step-title {
-          font-size: 10.5px;
+          font-size: 11.5px;
         }
         .anf-track-step-detail {
-          font-size: 9px;
+          font-size: 9.5px;
           text-align: left;
         }
         .anf-track-masked-row {
@@ -2217,9 +2227,41 @@ const STATUTS = {
           left: 42px;
           top: 1px;
           transform: none;
-          max-width: calc(100vw - 96px);
+          max-width: calc(100% - 8px);
           overflow: hidden;
           text-overflow: ellipsis;
+          font-size: 8px;
+          padding: 1px 4px;
+        }
+      }
+      @media (max-width: 640px) {
+        #anf-extension-stepper-root .anf-stepper-inner {
+          padding: 8px 8px 10px;
+        }
+        .anf-macro-block-inner {
+          padding: 12px;
+          border-width: 1px;
+        }
+        .anf-macro-badge {
+          padding: 3px 8px;
+          font-size: 9px;
+        }
+        .anf-macro-status-icon {
+          flex: 0 0 40px;
+          width: 40px;
+          height: 40px;
+        }
+        .anf-macro-title { font-size: 15px; }
+        .anf-track-step-title {
+          font-size: 10px;
+        }
+        .anf-track-step.is-current .anf-track-step-title {
+          font-size: 10.5px;
+        }
+        .anf-track-step-detail {
+          font-size: 9px;
+        }
+        .anf-step-duration {
           font-size: 7.5px;
           padding: 1px 3px;
         }
@@ -2398,9 +2440,7 @@ const STATUTS = {
     injectRecreatedStepperCss();
 
     const inferredIndex = inferTrackingIndex(apiInfos.statutCode);
-    const ceremonyStepIndex = TRACKING_STEPS.findIndex(
-      (step) => step.key === "ceremonie_naturalisation"
-    );
+    const ceremonyStepIndex = getCeremonyStepIndex();
     const isNegativeStatus = isNegativeDecisionStatus(apiInfos.statutCode);
     let currentIndex = inferredIndex;
     if (
@@ -2409,6 +2449,13 @@ const STATUTS = {
       !isNegativeStatus
     ) {
       currentIndex = Math.max(inferredIndex, ceremonyStepIndex);
+    }
+    if (
+      shouldHideCeremonyStep(apiInfos.statutCode) &&
+      ceremonyStepIndex >= 0 &&
+      currentIndex === ceremonyStepIndex
+    ) {
+      currentIndex = recoursStartIndex;
     }
     currentIndex = Math.min(TRACKING_STEPS.length - 1, currentIndex);
 
