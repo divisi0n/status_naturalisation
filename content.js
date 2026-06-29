@@ -193,7 +193,7 @@
     if (!startDate || !endDate) return null;
     const diffDays = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000);
     if (diffDays < 0) return null;
-    if (diffDays === 0) return "0 jrs";
+    if (diffDays === 0) return null;
 
     if (diffDays < 30) {
       return `${diffDays} jrs`;
