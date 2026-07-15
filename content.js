@@ -4,6 +4,8 @@
     TAB_NAME: "Demande d'accès à la Nationalité Française",
     API_ENDPOINT:
       "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/dossier-stepper",
+    API_FRISE_ENDPOINT:
+      "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/usager/dossiers/frise-stepper",
     API_DOSSIER_ENDPOINT:
       "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/usager/dossiers/",
     WAIT_TIME: 100,
@@ -92,8 +94,26 @@
     }
   }
 
+  async function fetchFriseOnce() {
+    try {
+      const response = await fetch(CONFIG.API_FRISE_ENDPOINT, {
+        credentials: "include",
+      });
+      if (!response.ok) return null;
+
+      const payload = await response.json();
+      return payload?.data ?? payload;
+    } catch (error) {
+      console.log(
+        "Warning: Extension API Naturalisation — API frise inaccessible:",
+        error
+      );
+      return null;
+    }
+  }
+
   // Extension version from manifest.json
-  const extensionVersion = "3.6.6";
+  const extensionVersion = "3.6.7";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -379,7 +399,10 @@
   }
 
   async function fetchApiInfos() {
-    const response = await fetchStepperOnce();
+    const [response, friseData] = await Promise.all([
+      fetchStepperOnce(),
+      fetchFriseOnce(),
+    ]);
     if (!response) return null;
 
     let dossierData;
@@ -428,6 +451,7 @@
       notifications: [],
       raw: {
         stepper: dossierData,
+        frise: friseData,
         dossier: null,
         notifications: [],
       },
@@ -549,6 +573,7 @@
     }
     console.log("Récépissé complétude:", apiInfos.recepisseCreated || "—");
     console.log("N° décret:", apiInfos.decretId || "—");
+    console.log("Étape active de la frise:", apiInfos.raw.frise?.id_active || "—");
     console.log("Résumé:", {
       statutCode: apiInfos.statutCode,
       statutDescription: apiInfos.statutDescription,
@@ -557,6 +582,7 @@
       decretId: apiInfos.decretId,
     });
     console.log("Données brutes (stepper):", apiInfos.raw.stepper);
+    console.log("Données brutes (frise):", apiInfos.raw.frise);
     console.log("Données brutes (dossier):", apiInfos.raw.dossier);
     console.log("Données brutes (notifications):", apiInfos.raw.notifications);
     console.log(
@@ -1015,7 +1041,7 @@ const STATUTS = {
       key: "sdanf",
       label: "SDANF",
       subtitle: "Contrôle ministériel à Rezé",
-      etapes: [9],
+      etapes: [9, 11],
     },
     {
       key: "scec",
@@ -1027,7 +1053,7 @@ const STATUTS = {
       key: "decret",
       label: "Préparation décret",
       subtitle: "Avis favorable, validation et insertion au décret",
-      etapes: [11],
+      etapes: [12],
     },
     {
       key: "publication",
@@ -1067,6 +1093,7 @@ const STATUTS = {
       { key: "controle_a_effectuer", code: "controle_a_effectuer", group: "sdanf", title: "SDANF — Contrôle en cours" },
       { key: "traitement_scec", code: "controle_en_attente_pec", group: "scec", milestone: true, title: "Traitement en cours (SCEC)" },
       { key: "controle_pec_a_faire", code: "controle_pec_a_faire", group: "scec", title: "SCEC — Vérification en cours" },
+      { key: "traitement_sdanf_2", group: "sdanf", milestone: true, title: "Traitement en cours (SDANF)" },
       { key: "decision_prise", code: "controle_transmise_pour_decret", group: "decret", milestone: true, title: "Décision prise" },
       { key: "controle_en_attente_retour_hierarchique", code: "controle_en_attente_retour_hierarchique", group: "decret", title: "Validation hiérarchique ministérielle" },
       { key: "controle_decision_a_editer", code: "controle_decision_a_editer", group: "decret", title: "Décision favorable, édition en cours" },
@@ -1214,6 +1241,22 @@ const STATUTS = {
       }
     });
     return bestIndex;
+  }
+
+  function inferFriseTrackingIndex(apiInfos) {
+    const idActive = Number(
+      apiInfos?.raw?.frise?.id_active ?? apiInfos?.raw?.stepper?.id_active
+    );
+    const stepKeys = {
+      9: "traitement_sdanf_1",
+      10: "traitement_scec",
+      11: "traitement_sdanf_2",
+      12: "decision_prise",
+      13: "ceremonie_naturalisation",
+    };
+    const stepKey = stepKeys[idActive];
+    const index = stepKey ? getStepIndexByKey(stepKey) : -1;
+    return index >= 0 ? index : null;
   }
 
   function getNextMilestoneIndex(steps, milestoneIndex) {
@@ -1572,9 +1615,14 @@ const STATUTS = {
   };
 
   function createVisibilityToggleIcon(hidden) {
-    const icon = document.createElement("span");
+    const icon = document.createElement("button");
+    icon.type = "button";
     icon.className = "anf-toggle-plateforme";
-    icon.setAttribute("aria-hidden", "true");
+    icon.setAttribute(
+      "aria-label",
+      hidden ? "Afficher la plateforme" : "Masquer la plateforme"
+    );
+    icon.setAttribute("aria-pressed", String(!hidden));
     icon.innerHTML = hidden
       ? VISIBILITY_ICON_SVG.hidden
       : VISIBILITY_ICON_SVG.visible;
@@ -1801,7 +1849,7 @@ const STATUTS = {
       }
       .anf-macro-block.is-done .anf-macro-title { color: #15803d; }
       .anf-macro-block.is-current .anf-macro-title { color: var(--anf-rouge); }
-      .anf-macro-block.is-pending .anf-macro-title { color: #9ca3af; }
+      .anf-macro-block.is-pending .anf-macro-title { color: #6b7280; }
       .anf-macro-badge {
         flex-shrink: 0;
         padding: 3px 10px;
@@ -1821,7 +1869,7 @@ const STATUTS = {
       }
       .anf-macro-block.is-pending .anf-macro-badge {
         background: #f3f4f6;
-        color: #9ca3af;
+        color: #4b5563;
       }
       .anf-macro-subtitle {
         margin: 0 0 14px;
@@ -2018,7 +2066,7 @@ const STATUTS = {
         font-size: 11.5px;
       }
       .anf-track-step.is-pending .anf-track-step-title {
-        color: #9b9b9b;
+        color: #6b7280;
         font-weight: 600;
       }
       .anf-track-step-details {
@@ -2036,7 +2084,7 @@ const STATUTS = {
         display: block;
         width: 100%;
         color: var(--anf-muted);
-        font-size: 9.5px;
+        font-size: 11px;
         font-weight: 500;
         line-height: 1.35;
         text-align: center;
@@ -2045,7 +2093,7 @@ const STATUTS = {
       }
       .anf-track-step-detail.is-date {
         color: #5c5c78;
-        font-size: 9px;
+        font-size: 10px;
       }
       .anf-track-step-detail.is-status-card {
         padding: 5px 6px;
@@ -2053,7 +2101,7 @@ const STATUTS = {
         border: 1px solid rgba(0, 0, 145, 0.1);
         background: #f7f7fd;
         color: var(--anf-ink);
-        font-size: 9.5px;
+        font-size: 11px;
         font-weight: 600;
         line-height: 1.35;
       }
@@ -2067,7 +2115,7 @@ const STATUTS = {
         border: 1px solid #9be9b0;
         background: #f3fff6;
         color: #18794e;
-        font-size: 9.5px;
+        font-size: 11px;
         white-space: pre-line;
       }
       .anf-track-step-detail.is-link {
@@ -2081,7 +2129,6 @@ const STATUTS = {
         align-items: center;
         justify-content: center;
         gap: 5px;
-        cursor: pointer;
         width: auto !important;
       }
       .anf-toggle-plateforme {
@@ -2090,8 +2137,17 @@ const STATUTS = {
         justify-content: center;
         width: 14px;
         height: 14px;
+        padding: 0;
+        border: 0;
+        border-radius: 2px;
+        background: transparent;
         color: var(--anf-bleu);
+        cursor: pointer;
         flex-shrink: 0;
+      }
+      .anf-toggle-plateforme:focus-visible {
+        outline: 2px solid var(--anf-bleu);
+        outline-offset: 2px;
       }
       .anf-toggle-plateforme svg {
         display: block;
@@ -2212,7 +2268,7 @@ const STATUTS = {
           font-size: 11.5px;
         }
         .anf-track-step-detail {
-          font-size: 9.5px;
+          font-size: 10px;
           text-align: left;
         }
         .anf-track-masked-row {
@@ -2244,7 +2300,7 @@ const STATUTS = {
         }
         .anf-macro-badge {
           padding: 3px 8px;
-          font-size: 9px;
+          font-size: 10px;
         }
         .anf-macro-status-icon {
           flex: 0 0 40px;
@@ -2259,7 +2315,7 @@ const STATUTS = {
           font-size: 10.5px;
         }
         .anf-track-step-detail {
-          font-size: 9px;
+          font-size: 10px;
         }
         .anf-step-duration {
           font-size: 7.5px;
@@ -2350,9 +2406,11 @@ const STATUTS = {
     if (isCurrent && !["decret_naturalisation_publie", "ceremonie_naturalisation", "inseree_dans_decret"].includes(stepKey)) {
       details.push({ text: dossierStatus, variant: "status-card" });
     }
+    if (isCurrent && stepKey === "ceremonie_naturalisation") {
+      details.push({ text: dossierStatus, variant: "status-card" });
+    }
     if (
       stepKey === "decret_naturalisation_publie" ||
-      stepKey === "ceremonie_naturalisation" ||
       stepKey === "inseree_dans_decret"
     ) {
       if (isCurrent) {
@@ -2415,9 +2473,14 @@ const STATUTS = {
             "title",
             hidden ? "Afficher la plateforme" : "Masquer la plateforme"
           );
+          icon.setAttribute(
+            "aria-label",
+            hidden ? "Afficher la plateforme" : "Masquer la plateforme"
+          );
+          icon.setAttribute("aria-pressed", String(!hidden));
         };
 
-        row.onclick = toggleMasked;
+        icon.addEventListener("click", toggleMasked);
         row.appendChild(textSpan);
         row.appendChild(icon);
         wrapper.appendChild(row);
@@ -2439,17 +2502,11 @@ const STATUTS = {
 
     injectRecreatedStepperCss();
 
-    const inferredIndex = inferTrackingIndex(apiInfos.statutCode);
-    const ceremonyStepIndex = getCeremonyStepIndex();
-    const isNegativeStatus = isNegativeDecisionStatus(apiInfos.statutCode);
+    const statusIndex = inferTrackingIndex(apiInfos.statutCode);
+    const friseIndex = inferFriseTrackingIndex(apiInfos);
+    const inferredIndex = friseIndex ?? statusIndex;
     let currentIndex = inferredIndex;
-    if (
-      apiInfos.decretId &&
-      ceremonyStepIndex >= 0 &&
-      !isNegativeStatus
-    ) {
-      currentIndex = Math.max(inferredIndex, ceremonyStepIndex);
-    }
+    const ceremonyStepIndex = getCeremonyStepIndex();
     if (
       shouldHideCeremonyStep(apiInfos.statutCode) &&
       ceremonyStepIndex >= 0 &&
