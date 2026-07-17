@@ -113,7 +113,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.6.9";
+  const extensionVersion = "3.7.0";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -217,6 +217,42 @@
 
   function isDecisionSdanfAfterScec(source) {
     return getFriseType(source) === "DECISION_SDANF_APRES_SCEC";
+  }
+
+  function routeHasScec(source) {
+    const type = getFriseType(source);
+    if (type === "DECISION_SDANF_AVANT_SCEC") return false;
+    if (type === "DECISION_SDANF_APRES_SCEC") return true;
+    if (type === "COMPLET") return hasScecStep(source) !== false;
+    if (type.startsWith("DECISION_PLATEFORME_")) return false;
+    return hasScecStep(source) !== false;
+  }
+
+  function getFriseStepKeys(source) {
+    const type = getFriseType(source);
+    if (type === "DECISION_RAPO") return {};
+    if (type === "DECISION_PLATEFORME_AVANT_VF") {
+      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "traitement_instruction", 4: "decision_prefecture" };
+    }
+    if (type === "DECISION_PLATEFORME_AVANT_RECEPISSE_COMPLETUDE") {
+      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "decision_prefecture" };
+    }
+    if (type === "DECISION_PLATEFORME_AVANT_EA") {
+      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "decision_prefecture" };
+    }
+    if (type === "DECISION_PLATEFORME_APRES_EA") {
+      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "compte_rendu_assimilation", 8: "traitement_plateforme_3", 9: "decision_prefecture" };
+    }
+    if (type === "DECISION_SDANF_AVANT_SCEC") {
+      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "compte_rendu_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "decision_prise" };
+    }
+    if (type === "COMPLET" && hasScecStep(source) === false) {
+      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "compte_rendu_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "decision_prise", 11: "ceremonie_naturalisation" };
+    }
+    if (type === "DECISION_SDANF_APRES_SCEC") {
+      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "compte_rendu_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "traitement_scec", 11: "traitement_sdanf_2", 12: "decision_prise" };
+    }
+    return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "compte_rendu_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "traitement_scec", 11: "traitement_sdanf_2", 12: "decision_prise", 13: "ceremonie_naturalisation" };
   }
 
   function getContextualStatusDescription(statusCode, friseData) {
@@ -1129,7 +1165,8 @@ const STATUTS = {
 
   function buildTrackingSteps() {
     const prefecture = [
-      { key: "demande_envoyee", code: "draft", group: "prefecture", etape: 1, sub: "1", title: "Demande envoyée" },
+      { key: "saisie_demande", code: "draft", group: "prefecture", etape: 0, sub: "0", title: "Saisie de la demande" },
+      { key: "demande_envoyee", group: "prefecture", etape: 1, sub: "1", title: "Demande envoyée" },
       { key: "dossier_depose", code: "dossier_depose", group: "prefecture", etape: 2, sub: "2", title: "Dépôt / enregistrement du dossier", locked: true },
       { key: "examen_pieces", code: "verification_formelle_a_traiter", group: "prefecture", etape: 3, sub: "3", title: "Examen des pièces en cours" },
       { key: "demande_deposee", group: "prefecture", etape: 4, title: "Demande déposée" },
@@ -1141,12 +1178,12 @@ const STATUTS = {
       { key: "decision_prefecture", code: "prop_decision_pref_a_effectuer", group: "prefecture", etape: 8, sub: "8", title: "Décision préfecture" },
     ];
     const ministry = [
-      { key: "traitement_sdanf_1", code: "controle_a_affecter", group: "sdanf", milestone: true, title: "Traitement en cours (SDANF)" },
+      { key: "traitement_sdanf_1", code: "controle_a_affecter", group: "sdanf", milestone: true, title: "SDANF - Contrôle initial du dossier" },
       { key: "controle_a_effectuer", code: "controle_a_effectuer", group: "sdanf", title: "SDANF — Contrôle en cours" },
       { key: "controle_hierarchique_sdanf_1", group: "sdanf", title: "SDANF — Validation du contrôle" },
-      { key: "traitement_scec", code: "controle_en_attente_pec", group: "scec", milestone: true, title: "Traitement en cours (SCEC)" },
+      { key: "traitement_scec", code: "controle_en_attente_pec", group: "scec", milestone: true, title: "SCEC - Vérification de l'état civil" },
       { key: "controle_pec_a_faire", code: "controle_pec_a_faire", group: "scec", title: "SCEC — Vérification en cours" },
-      { key: "traitement_sdanf_2", group: "sdanf", milestone: true, title: "Traitement en cours (SDANF)" },
+      { key: "traitement_sdanf_2", group: "sdanf", milestone: true, title: "SDANF - Validation finale et préparation du décret" },
       { key: "decision_prise", code: "controle_transmise_pour_decret", group: "decret", milestone: true, title: "Transmis pour décret" },
       { key: "controle_en_attente_retour_hierarchique", code: "controle_en_attente_retour_hierarchique", group: "decret", title: "SDANF2 — Validation hiérarchique" },
       { key: "controle_decision_a_editer", code: "controle_decision_a_editer", group: "decret", title: "Décision favorable, édition en cours" },
@@ -1305,19 +1342,7 @@ const STATUTS = {
 
   function inferFriseTrackingIndex(apiInfos) {
     const idActive = getFriseActiveId(apiInfos);
-    const stepKeys = hasScecStep(apiInfos) === false
-      ? {
-          9: "traitement_sdanf_1",
-          10: "decision_prise",
-          11: "ceremonie_naturalisation",
-        }
-      : {
-      9: "traitement_sdanf_1",
-      10: "traitement_scec",
-      11: "traitement_sdanf_2",
-      12: "decision_prise",
-      13: "ceremonie_naturalisation",
-        };
+    const stepKeys = getFriseStepKeys(apiInfos);
     const stepKey = stepKeys[idActive];
     const index = stepKey ? getStepIndexByKey(stepKey) : -1;
     return index >= 0 ? index : null;
@@ -1427,27 +1452,23 @@ const STATUTS = {
     const clamp = (value) => Math.max(0, Math.min(100, Math.round(value)));
     const firstPhase = macroPhases[0];
     const secondPhase = macroPhases[1];
-    const firstPhaseSteps = firstPhase.endIndex - firstPhase.startIndex + 1;
-    const secondPhaseIndices = TRACKING_STEPS
+    const visibleIndicesForPhase = (phase) => TRACKING_STEPS
       .map((step, index) => ({ step, index }))
       .filter(({ step, index }) => {
-        if (index < secondPhase.startIndex || index > secondPhase.endIndex) {
+        if (index < phase.startIndex || index > phase.endIndex) {
           return false;
         }
-        return !(
-          hasScecStep(apiInfos) === false &&
-          (step.group === "scec" || step.key === "traitement_sdanf_2")
-        );
+        return shouldShowStepInStepper(step, index, currentIndex, phase, apiInfos);
       })
       .map(({ index }) => index);
+    const firstPhaseIndices = visibleIndicesForPhase(firstPhase);
+    const secondPhaseIndices = visibleIndicesForPhase(secondPhase);
+    const firstPhaseSteps = firstPhaseIndices.length;
     const secondPhaseSteps = secondPhaseIndices.length;
 
     if (currentIndex < secondPhase.startIndex) {
       if (firstPhaseSteps <= 0) return 0;
-      const firstPhaseProgress = Math.min(
-        currentIndex - firstPhase.startIndex + 1,
-        firstPhaseSteps
-      );
+      const firstPhaseProgress = firstPhaseIndices.filter((index) => index <= currentIndex).length;
       return clamp((firstPhaseProgress / firstPhaseSteps) * 50);
     }
 
@@ -1477,11 +1498,22 @@ const STATUTS = {
 
   function shouldShowStepInStepper(step, index, currentIndex, phase, apiInfos) {
     const statusCode = apiInfos?.statutCode;
-    if (
-      hasScecStep(apiInfos) === false &&
-      (step.group === "scec" || step.key === "traitement_sdanf_2")
-    ) {
-      return false;
+    const typeFrise = getFriseType(apiInfos);
+    const isOfficialRoute = [
+      "COMPLET",
+      "DECISION_PLATEFORME_AVANT_VF",
+      "DECISION_PLATEFORME_AVANT_RECEPISSE_COMPLETUDE",
+      "DECISION_PLATEFORME_AVANT_EA",
+      "DECISION_PLATEFORME_APRES_EA",
+      "DECISION_SDANF_AVANT_SCEC",
+      "DECISION_SDANF_APRES_SCEC",
+    ].includes(typeFrise);
+    if (isOfficialRoute) {
+      const routeStepKeys = new Set(Object.values(getFriseStepKeys(apiInfos)));
+      // The detailed API status can be more precise than id_active (for
+      // example PPID while the official frise remains on SDANF2). Keep that
+      // current point, but do not invent the other missing route steps.
+      if (!routeStepKeys.has(step.key) && index !== currentIndex) return false;
     }
     if (
       step.key === "ceremonie_naturalisation" &&
@@ -2403,10 +2435,12 @@ const STATUTS = {
           padding: 5px;
         }
         .anf-step-duration {
-          left: calc(50vw - 20px);
+          /* The duration belongs to the text column on the vertical mobile
+             stepper, not to the 32px icon rail. */
+          left: 42px;
           top: 1px;
           transform: none;
-          width: min(240px, calc(100vw - 90px));
+          width: calc(100vw - 74px);
           max-width: none;
           font-size: 8px;
           padding: 1px 4px;
