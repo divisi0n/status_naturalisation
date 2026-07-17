@@ -113,7 +113,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.6.8";
+  const extensionVersion = "3.6.9";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -189,6 +189,53 @@
     };
 
     return statusMap[status] || status || statusMap["code_non_reconnu"];
+  }
+
+  function getFriseActiveId(source) {
+    const id = Number(
+      source?.raw?.frise?.id_active ??
+        source?.raw?.stepper?.id_active ??
+        source?.id_active
+    );
+    return Number.isFinite(id) ? id : null;
+  }
+
+  function getFriseType(source) {
+    return String(source?.raw?.frise?.type_frise ?? source?.type_frise ?? "")
+      .trim()
+      .toUpperCase();
+  }
+
+  function hasScecStep(source) {
+    const value = source?.raw?.frise?.has_step_scec ?? source?.has_step_scec;
+    return typeof value === "boolean" ? value : null;
+  }
+
+  function isDecisionSdanfBeforeScec(source) {
+    return getFriseType(source) === "DECISION_SDANF_AVANT_SCEC";
+  }
+
+  function isDecisionSdanfAfterScec(source) {
+    return getFriseType(source) === "DECISION_SDANF_APRES_SCEC";
+  }
+
+  function getContextualStatusDescription(statusCode, friseData) {
+    const code = normalizeStatusCode(statusCode);
+    if (code !== "controle_en_attente_retour_hierarchique") {
+      return getStatusDescription(code);
+    }
+
+    if (isDecisionSdanfBeforeScec(friseData)) {
+      return "SDANF : Validation du contrôle";
+    }
+    if (isDecisionSdanfAfterScec(friseData)) {
+      return "SDANF : Validation hiérarchique";
+    }
+
+    const idActive = getFriseActiveId(friseData);
+    if (idActive === 9) return "SDANF : Validation du contrôle";
+    if (idActive === 11) return "SDANF : Validation hiérarchique";
+    return "SDANF : Validation hiérarchique (contexte non précisé)";
   }
 
   function formatDate(dateString) {
@@ -428,8 +475,9 @@
       return null;
     }
 
-    const dossierStatus = getStatusDescription(
-      String(dossierStatusCode).toLowerCase()
+    const dossierStatus = getContextualStatusDescription(
+      dossierStatusCode,
+      friseData
     );
 
     return {
@@ -834,10 +882,10 @@ const STATUTS = {
     },
     "controle_en_attente_retour_hierarchique": {
       phase: "Préparation décret",
-      explication: "Validation hiérarchique ministérielle",
+      explication: "Validation hiérarchique",
       etape: 11,
       rang: 1102,
-      description: "Le projet de décret incluant votre demande est soumis à la validation de la hiérarchie ministérielle. Étape administrative normale avant la finalisation du décret.",
+      description: "Un retour hiérarchique est attendu. La frise ANEF permet de distinguer un contrôle SDANF d'une étape SDANF2.",
       icon: "👔"
     },
     "controle_decision_a_editer": {
@@ -1095,11 +1143,12 @@ const STATUTS = {
     const ministry = [
       { key: "traitement_sdanf_1", code: "controle_a_affecter", group: "sdanf", milestone: true, title: "Traitement en cours (SDANF)" },
       { key: "controle_a_effectuer", code: "controle_a_effectuer", group: "sdanf", title: "SDANF — Contrôle en cours" },
+      { key: "controle_hierarchique_sdanf_1", group: "sdanf", title: "SDANF — Validation du contrôle" },
       { key: "traitement_scec", code: "controle_en_attente_pec", group: "scec", milestone: true, title: "Traitement en cours (SCEC)" },
       { key: "controle_pec_a_faire", code: "controle_pec_a_faire", group: "scec", title: "SCEC — Vérification en cours" },
       { key: "traitement_sdanf_2", group: "sdanf", milestone: true, title: "Traitement en cours (SDANF)" },
       { key: "decision_prise", code: "controle_transmise_pour_decret", group: "decret", milestone: true, title: "Transmis pour décret" },
-      { key: "controle_en_attente_retour_hierarchique", code: "controle_en_attente_retour_hierarchique", group: "decret", title: "Validation hiérarchique ministérielle" },
+      { key: "controle_en_attente_retour_hierarchique", code: "controle_en_attente_retour_hierarchique", group: "decret", title: "SDANF2 — Validation hiérarchique" },
       { key: "controle_decision_a_editer", code: "controle_decision_a_editer", group: "decret", title: "Décision favorable, édition en cours" },
       { key: "controle_en_attente_signature", code: "controle_en_attente_signature", group: "decret", title: "Attente signature ministérielle" },
       { key: "transmis_a_ac", code: "transmis_a_ac", group: "decret", title: "Transmis à l'administration centrale" },
@@ -1209,12 +1258,19 @@ const STATUTS = {
     return getStepIndexByKey("recours_envoye");
   }
 
-  function inferTrackingIndex(statusCode) {
-    const code = normalizeStatusCode(statusCode);
+  function inferTrackingIndex(apiInfos) {
+    const code = normalizeStatusCode(apiInfos?.statutCode ?? apiInfos);
     if (!code || code === "-" || code === "code_non_reconnu") return null;
 
     if (isNegativeDecisionStatus(code)) {
       return inferRecoursTrackingIndex(code);
+    }
+
+    if (
+      code === "controle_en_attente_retour_hierarchique" &&
+      (isDecisionSdanfBeforeScec(apiInfos) || getFriseActiveId(apiInfos) === 9)
+    ) {
+      return getStepIndexByKey("controle_hierarchique_sdanf_1");
     }
 
     const STATUS_STEP_ALIASES = {
@@ -1248,16 +1304,20 @@ const STATUTS = {
   }
 
   function inferFriseTrackingIndex(apiInfos) {
-    const idActive = Number(
-      apiInfos?.raw?.frise?.id_active ?? apiInfos?.raw?.stepper?.id_active
-    );
-    const stepKeys = {
+    const idActive = getFriseActiveId(apiInfos);
+    const stepKeys = hasScecStep(apiInfos) === false
+      ? {
+          9: "traitement_sdanf_1",
+          10: "decision_prise",
+          11: "ceremonie_naturalisation",
+        }
+      : {
       9: "traitement_sdanf_1",
       10: "traitement_scec",
       11: "traitement_sdanf_2",
       12: "decision_prise",
       13: "ceremonie_naturalisation",
-    };
+        };
     const stepKey = stepKeys[idActive];
     const index = stepKey ? getStepIndexByKey(stepKey) : -1;
     return index >= 0 ? index : null;
@@ -1293,8 +1353,17 @@ const STATUTS = {
       .replace(/"/g, "&quot;");
   }
 
-  function getStatusLongDescription(statusCode) {
+  function getStatusLongDescription(statusCode, apiInfos = null) {
     const code = String(statusCode || "").trim().toLowerCase();
+    if (code === "controle_en_attente_retour_hierarchique") {
+      if (isDecisionSdanfBeforeScec(apiInfos) || getFriseActiveId(apiInfos) === 9) {
+        return "Un retour hiérarchique est attendu pendant le contrôle SDANF.";
+      }
+      if (isDecisionSdanfAfterScec(apiInfos) || getFriseActiveId(apiInfos) === 11) {
+        return "Un retour hiérarchique est attendu dans le parcours SDANF2.";
+      }
+      return "Un retour hiérarchique est attendu ; la frise ANEF ne précise pas le sous-parcours.";
+    }
     return STATUTS[code]?.description || "";
   }
 
@@ -1354,12 +1423,24 @@ const STATUTS = {
     return "pending";
   }
 
-  function getMacroProgressPct(currentIndex, macroPhases) {
+  function getMacroProgressPct(currentIndex, macroPhases, apiInfos = null) {
     const clamp = (value) => Math.max(0, Math.min(100, Math.round(value)));
     const firstPhase = macroPhases[0];
     const secondPhase = macroPhases[1];
     const firstPhaseSteps = firstPhase.endIndex - firstPhase.startIndex + 1;
-    const secondPhaseSteps = secondPhase.endIndex - secondPhase.startIndex + 1;
+    const secondPhaseIndices = TRACKING_STEPS
+      .map((step, index) => ({ step, index }))
+      .filter(({ step, index }) => {
+        if (index < secondPhase.startIndex || index > secondPhase.endIndex) {
+          return false;
+        }
+        return !(
+          hasScecStep(apiInfos) === false &&
+          (step.group === "scec" || step.key === "traitement_sdanf_2")
+        );
+      })
+      .map(({ index }) => index);
+    const secondPhaseSteps = secondPhaseIndices.length;
 
     if (currentIndex < secondPhase.startIndex) {
       if (firstPhaseSteps <= 0) return 0;
@@ -1371,10 +1452,9 @@ const STATUTS = {
     }
 
     if (secondPhaseSteps <= 0) return 50;
-    const secondPhaseProgress = Math.min(
-      currentIndex - secondPhase.startIndex + 1,
-      secondPhaseSteps
-    );
+    const secondPhaseProgress = secondPhaseIndices.filter(
+      (index) => index <= currentIndex
+    ).length;
     return clamp(50 + (secondPhaseProgress / secondPhaseSteps) * 50);
   }
 
@@ -1395,7 +1475,14 @@ const STATUTS = {
     return "pending";
   }
 
-  function shouldShowStepInStepper(step, index, currentIndex, phase, statusCode) {
+  function shouldShowStepInStepper(step, index, currentIndex, phase, apiInfos) {
+    const statusCode = apiInfos?.statutCode;
+    if (
+      hasScecStep(apiInfos) === false &&
+      (step.group === "scec" || step.key === "traitement_sdanf_2")
+    ) {
+      return false;
+    }
     if (
       step.key === "ceremonie_naturalisation" &&
       shouldHideCeremonyStep(statusCode)
@@ -1528,7 +1615,7 @@ const STATUTS = {
           index,
           currentIndex,
           phase,
-          apiInfos.statutCode
+          apiInfos
         )
       );
 
@@ -1713,6 +1800,12 @@ const STATUTS = {
         font-size: 14px;
         font-weight: 700;
         line-height: 1.25;
+      }
+      .anf-track-note {
+        margin: 2px 0 0;
+        color: var(--anf-muted);
+        font-size: 9px;
+        line-height: 1.35;
       }
       .anf-track-progress-wrap {
         margin-bottom: 8px;
@@ -1932,18 +2025,19 @@ const STATUTS = {
         display: flex;
         align-items: flex-start;
         justify-content: center;
-        flex: 0 1 auto;
-        width: fit-content;
+        flex: 1 1 auto;
+        width: 100%;
         max-width: 100%;
+        min-width: 0;
         margin: 0 auto;
-        padding: 14px 0 4px;
+        padding: 34px 18px 8px;
         gap: 0;
       }
       .anf-phase-stepper .anf-track-step {
-        flex: 0 1 148px;
-        width: 148px;
-        min-width: 112px;
-        max-width: 168px;
+        flex: 1 1 0;
+        width: auto;
+        min-width: 0;
+        max-width: none;
         display: flex;
         flex-direction: column;
         overflow: visible;
@@ -1973,11 +2067,12 @@ const STATUTS = {
       }
       .anf-step-duration {
         position: absolute;
-        left: 0;
-        top: 50%;
+        left: 50%;
+        top: 0;
         z-index: 2;
-        transform: translate(-50%, calc(-100% - 5px));
-        max-width: 96px;
+        transform: translate(-50%, calc(-100% - 4px));
+        width: min(108px, calc(100% - 8px));
+        max-width: none;
         padding: 1px 5px;
         border-radius: 4px;
         background: #f0f0f8;
@@ -1986,9 +2081,9 @@ const STATUTS = {
         font-size: 8.5px;
         font-weight: 700;
         line-height: 1.2;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        text-align: center;
+        white-space: normal;
+        overflow-wrap: anywhere;
         pointer-events: none;
       }
       .anf-step-duration.is-done {
@@ -2065,6 +2160,7 @@ const STATUTS = {
         display: flex;
         flex-direction: column;
         align-items: center;
+        min-width: 0;
         gap: 4px;
         padding: 10px 6px 0;
         text-align: center;
@@ -2101,6 +2197,7 @@ const STATUTS = {
         align-items: stretch;
         gap: 3px;
         width: 100%;
+        min-width: 0;
         margin-top: 2px;
       }
       .anf-track-step-details:empty {
@@ -2306,12 +2403,11 @@ const STATUTS = {
           padding: 5px;
         }
         .anf-step-duration {
-          left: 42px;
+          left: calc(50vw - 20px);
           top: 1px;
           transform: none;
-          max-width: calc(100% - 8px);
-          overflow: hidden;
-          text-overflow: ellipsis;
+          width: min(240px, calc(100vw - 90px));
+          max-width: none;
           font-size: 8px;
           padding: 1px 4px;
         }
@@ -2394,7 +2490,7 @@ const STATUTS = {
     }
     if (stepKey === "examen_pieces" && complementInstructionDate) {
       const complementLabel = complementRequestCount > 1
-        ? `${complementRequestCount} demandes de complément — dernière le`
+        ? `${complementRequestCount} demandes de complément - `
         : "Complément demandé le";
       details.push({
         text: `${complementLabel} ${formatDate(complementInstructionDate)}`,
@@ -2534,7 +2630,7 @@ const STATUTS = {
 
     // Le statut détaillé prime : id_active désigne une étape macro et peut
     // rester à 11 (SDANF2) alors que le dossier est déjà PPID.
-    const statusIndex = inferTrackingIndex(apiInfos.statutCode);
+    const statusIndex = inferTrackingIndex(apiInfos);
     const friseIndex = inferFriseTrackingIndex(apiInfos);
     const inferredIndex = statusIndex ?? friseIndex ?? 0;
     let currentIndex = inferredIndex;
@@ -2556,10 +2652,10 @@ const STATUTS = {
     }
 
     const macroPhases = getMacroPhases(apiInfos.statutCode);
-    const progressPct = getMacroProgressPct(currentIndex, macroPhases);
+    const progressPct = getMacroProgressPct(currentIndex, macroPhases, apiInfos);
     const currentStep = TRACKING_STEPS[currentIndex];
     const currentStepTitle = currentStep ? formatTrackingStepTitle(currentStep, apiInfos) : "";
-    const longDescription = getStatusLongDescription(apiInfos.statutCode);
+    const longDescription = getStatusLongDescription(apiInfos.statutCode, apiInfos);
     const currentPhase =
       macroPhases.find(
         (phase) =>
@@ -2570,6 +2666,7 @@ const STATUTS = {
       <div class="anf-stepper-inner">
         <div class="anf-track-head">
           <h2 class="anf-track-title">Demande d'accès à la Nationalité Française</h2>
+          <p class="anf-track-note">Parcours indicatif : ANEF ne fournit pas l'historique complet des statuts.</p>
         </div>
         <div class="anf-track-progress-wrap">
           <div class="anf-track-progress-meta">
