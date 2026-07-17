@@ -113,7 +113,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.6.7";
+  const extensionVersion = "3.6.8";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -263,7 +263,7 @@
   }
 
   function extractComplementDates(demandeComplements) {
-    const result = { instructionDate: null, depotDate: null };
+    const result = { instructionDate: null, depotDate: null, requestCount: 0 };
     if (!Array.isArray(demandeComplements) || !demandeComplements.length) {
       return result;
     }
@@ -272,6 +272,7 @@
       (entry) => entry?.type_complement === "COMPLEMENT_INSTRUCTION"
     );
     if (!instructions.length) return result;
+    result.requestCount = instructions.length;
 
     const latestInstruction = [...instructions].sort(
       (a, b) =>
@@ -440,6 +441,7 @@
       demandeDate: null,
       complementInstructionDate: null,
       complementDepotDate: null,
+      complementRequestCount: 0,
       dossierDepotDate: null,
       assimilationDate: null,
       assimilationPlateforme: null,
@@ -513,6 +515,7 @@
       const complementDates = extractComplementDates(demandeComplements);
       apiInfos.complementInstructionDate = complementDates.instructionDate;
       apiInfos.complementDepotDate = complementDates.depotDate;
+      apiInfos.complementRequestCount = complementDates.requestCount;
     }
 
     if (notifRaw) {
@@ -567,6 +570,7 @@
     console.log("ID dossier:", apiInfos.idDossier);
     console.log("Date demande:", apiInfos.demandeDate || "—");
     console.log("Complément instruction:", apiInfos.complementInstructionDate || "—");
+    console.log("Demandes de complément:", apiInfos.complementRequestCount || 0);
     console.log("Entretien assimilation:", apiInfos.assimilationDate || "—");
     if (apiInfos.assimilationPlateforme) {
       console.log("Plateforme assimilation:", apiInfos.assimilationPlateforme);
@@ -807,7 +811,7 @@ const STATUTS = {
       explication: "Transmis au SCEC de Nantes",
       etape: 10,
       rang: 1001,
-      description: "Le Service Central d'État Civil (SCEC) de Nantes vérifie l'authenticité de vos actes d'état civil étrangers. Cette vérification est obligatoire pour valider votre identité.",
+      description: "Votre dossier est passé au Service central d'état civil (SCEC). L'étape suivante peut intervenir rapidement ou nécessiter une vérification complémentaire.",
       icon: "🏛️"
     },
     "controle_pec_a_faire": {
@@ -815,17 +819,17 @@ const STATUTS = {
       explication: "Vérification d'état civil en cours",
       etape: 10,
       rang: 1002,
-      description: "Le SCEC procède à la vérification de vos pièces d'état civil. Une fois validées, vos actes seront transcrits dans les registres français si votre naturalisation aboutit.",
+      description: "Une vérification par le SCEC est en cours. Une demande de précision ou de correction peut encore intervenir à ce stade.",
       icon: "✔️"
     },
   
     // ── Étape 11 : Préparation décret ────
     "controle_transmise_pour_decret": {
       phase: "Préparation décret",
-      explication: "Avis FAVORABLE, transmis pour décret",
+      explication: "Transmis pour décret",
       etape: 11,
       rang: 1101,
-      description: "Excellente nouvelle ! L'avis est FAVORABLE. Votre dossier est transmis au service des décrets pour être inclus dans un prochain décret de naturalisation. La fin approche !",
+      description: "Le dossier a été transmis dans le circuit des décrets. Les étapes d'insertion et de publication restent distinctes.",
       icon: "🎉"
     },
     "controle_en_attente_retour_hierarchique": {
@@ -870,10 +874,10 @@ const STATUTS = {
     },
     "prete_pour_insertion_decret": {
       phase: "Préparation décret",
-      explication: "Validé, prêt pour insertion au décret",
+      explication: "Prêt pour insertion au décret",
       etape: 11,
       rang: 1107,
-      description: "Votre dossier est validé et prêt pour insertion dans le prochain décret. Le passage automatique au statut suivant a lieu chaque lundi entre 9h et 11h — inutile de rafraîchir le week-end.",
+      description: "Votre dossier est prêt à être inséré dans un décret. L'insertion puis la publication au Journal officiel restent à venir ; aucun délai ou créneau automatique n'est garanti.",
       icon: "✅"
     },
     "decret_en_preparation": {
@@ -904,10 +908,10 @@ const STATUTS = {
     // ── Étape 12 : Publication JO 
     "inseree_dans_decret": {
       phase: "Publication JO",
-      explication: "Inséré dans un décret signé",
+      explication: "Inséré dans un décret",
       etape: 12,
       rang: 1201,
-      description: "Votre nom est officiellement inscrit dans un décret de naturalisation ! Il attend maintenant la publication au Journal Officiel de la République Française.",
+      description: "Votre dossier est inscrit dans un décret. La publication au Journal officiel est une étape ultérieure et sa date n'est pas déduite de ce seul statut.",
       icon: "🎉"
     },
     "decret_envoye_prefecture": {
@@ -1078,13 +1082,13 @@ const STATUTS = {
   function buildTrackingSteps() {
     const prefecture = [
       { key: "demande_envoyee", code: "draft", group: "prefecture", etape: 1, sub: "1", title: "Demande envoyée" },
-      { key: "dossier_depose", code: "dossier_depose", group: "prefecture", etape: 2, sub: "2", title: "Dépôt du dossier", locked: true },
+      { key: "dossier_depose", code: "dossier_depose", group: "prefecture", etape: 2, sub: "2", title: "Dépôt / enregistrement du dossier", locked: true },
       { key: "examen_pieces", code: "verification_formelle_a_traiter", group: "prefecture", etape: 3, sub: "3", title: "Examen des pièces en cours" },
-      { key: "traitement_plateforme_1", group: "prefecture", etape: 4, title: "Traitement en cours (Plateforme)", platform: true },
+      { key: "demande_deposee", group: "prefecture", etape: 4, title: "Demande déposée" },
+      { key: "traitement_instruction", group: "prefecture", etape: 4, title: "Traitement en cours" },
       { key: "recepisse_completude", code: "instruction_recepisse_completude_a_envoyer", group: "prefecture", etape: 5, sub: "5", title: "Réception du récépissé de complétude" },
-      { key: "traitement_plateforme_2", group: "prefecture", etape: 6, title: "Traitement en cours (Plateforme)", platform: true },
-      { key: "entretien_assimilation", code: "ea_en_attente_ea", group: "prefecture", etape: 7, sub: "7", title: "Entretien d'assimilation", locked: true },
-      { key: "compte_rendu_assimilation", code: "ea_crea_a_valider", group: "prefecture", etape: 7, sub: "7b", title: "Compte-rendu d'assimilation", locked: true },
+      { key: "entretien_assimilation", code: "ea_en_attente_ea", group: "prefecture", etape: 7, sub: "7", title: "Convocation à l'entretien", locked: true },
+      { key: "compte_rendu_assimilation", code: "ea_crea_a_valider", group: "prefecture", etape: 7, sub: "7b", title: "Entretien / compte-rendu", locked: true },
       { key: "traitement_plateforme_3", group: "prefecture", etape: 8, title: "Traitement en cours (Plateforme)", platform: true },
       { key: "decision_prefecture", code: "prop_decision_pref_a_effectuer", group: "prefecture", etape: 8, sub: "8", title: "Décision préfecture" },
     ];
@@ -1094,7 +1098,7 @@ const STATUTS = {
       { key: "traitement_scec", code: "controle_en_attente_pec", group: "scec", milestone: true, title: "Traitement en cours (SCEC)" },
       { key: "controle_pec_a_faire", code: "controle_pec_a_faire", group: "scec", title: "SCEC — Vérification en cours" },
       { key: "traitement_sdanf_2", group: "sdanf", milestone: true, title: "Traitement en cours (SDANF)" },
-      { key: "decision_prise", code: "controle_transmise_pour_decret", group: "decret", milestone: true, title: "Décision prise" },
+      { key: "decision_prise", code: "controle_transmise_pour_decret", group: "decret", milestone: true, title: "Transmis pour décret" },
       { key: "controle_en_attente_retour_hierarchique", code: "controle_en_attente_retour_hierarchique", group: "decret", title: "Validation hiérarchique ministérielle" },
       { key: "controle_decision_a_editer", code: "controle_decision_a_editer", group: "decret", title: "Décision favorable, édition en cours" },
       { key: "controle_en_attente_signature", code: "controle_en_attente_signature", group: "decret", title: "Attente signature ministérielle" },
@@ -1104,7 +1108,7 @@ const STATUTS = {
       { key: "decret_en_preparation", code: "decret_en_preparation", group: "decret", title: "Décret en cours de préparation" },
       { key: "decret_a_qualifier", code: "decret_a_qualifier", group: "decret", title: "Décret en cours de qualification" },
       { key: "decret_en_validation", code: "decret_en_validation", group: "decret", title: "Décret en validation finale" },
-      { key: "inseree_dans_decret", code: "inseree_dans_decret", group: "publication", title: "Inséré dans un décret signé" },
+      { key: "inseree_dans_decret", code: "inseree_dans_decret", group: "publication", title: "Inséré dans un décret" },
       { key: "decret_envoye_prefecture", code: "decret_envoye_prefecture", group: "publication", title: "Décret envoyé à la préfecture" },
       { key: "notification_envoyee", code: "notification_envoyee", group: "publication", title: "Notification officielle envoyée" },
       { key: "decret_naturalisation_publie", code: "decret_naturalisation_publie", group: "final", milestone: true, title: "Décret publié au Journal Officiel" },
@@ -1207,7 +1211,7 @@ const STATUTS = {
 
   function inferTrackingIndex(statusCode) {
     const code = normalizeStatusCode(statusCode);
-    if (!code || code === "-" || code === "code_non_reconnu") return 0;
+    if (!code || code === "-" || code === "code_non_reconnu") return null;
 
     if (isNegativeDecisionStatus(code)) {
       return inferRecoursTrackingIndex(code);
@@ -1226,7 +1230,7 @@ const STATUTS = {
       if (code.startsWith("scec_") || code === "non_applicable") {
         return TRACKING_STEPS.findIndex((step) => step.code === "controle_en_attente_pec");
       }
-      return 1;
+      return null;
     }
 
     let bestIndex = 0;
@@ -1413,11 +1417,15 @@ const STATUTS = {
       lineOutDone = false,
       lineInDuration = null,
       lineInDurationIsStatus = false,
+      lineInDurationAtPhaseStart = false,
     } = railMeta;
     const state = getStepState(step, index, currentIndex);
     const item = document.createElement("div");
     item.className = `anf-track-step is-${state}`;
     if (lineInDuration) item.classList.add("has-duration");
+    if (lineInDurationAtPhaseStart) {
+      item.classList.add("has-phase-entry-duration");
+    }
     item.setAttribute("role", "listitem");
     item.dataset.stepKey = step.key;
 
@@ -1451,7 +1459,9 @@ const STATUTS = {
       } else if (lineInDone) {
         durationEl.classList.add("is-done");
       }
-      durationEl.textContent = lineInDuration;
+      durationEl.textContent = lineInDurationAtPhaseStart
+        ? `Il y a ${lineInDuration}`
+        : lineInDuration;
       track.appendChild(durationEl);
     }
 
@@ -1528,6 +1538,7 @@ const STATUTS = {
       const prev = !isFirst ? visibleSteps[visibleOffset - 1] : null;
       let lineInDuration = null;
       let lineInDurationIsStatus = false;
+      let lineInDurationAtPhaseStart = false;
       if (prev) {
         if (index === currentIndex && apiInfos.dateStatut) {
           lineInDuration = formatDurationBetween(
@@ -1545,6 +1556,20 @@ const STATUTS = {
             apiInfos
           );
         }
+      } else if (
+        phase.key !== "prefecture" &&
+        index === currentIndex &&
+        apiInfos.dateStatut
+      ) {
+        // À l'entrée du deuxième parcours (ministère ou recours), il n'y a
+        // pas de liaison précédente où poser le temps d'attente. On l'affiche
+        // donc sur la première étape ; après cette étape, il reste au milieu.
+        lineInDuration = formatDurationBetween(
+          parseAnchorDate(apiInfos.dateStatut),
+          new Date()
+        );
+        lineInDurationIsStatus = Boolean(lineInDuration);
+        lineInDurationAtPhaseStart = Boolean(lineInDuration);
       }
 
       stepper.appendChild(
@@ -1555,6 +1580,7 @@ const STATUTS = {
           lineOutDone: !isLast && index < currentIndex,
           lineInDuration,
           lineInDurationIsStatus,
+          lineInDurationAtPhaseStart,
         })
       );
     });
@@ -2348,6 +2374,7 @@ const STATUTS = {
       dateStatut,
       demandeDate,
       complementInstructionDate,
+      complementRequestCount,
       assimilationDate,
       assimilationPlateforme,
       recepisseCreated,
@@ -2366,8 +2393,11 @@ const STATUTS = {
       details.push({ text: formatDate(demandeDate), variant: "date" });
     }
     if (stepKey === "examen_pieces" && complementInstructionDate) {
+      const complementLabel = complementRequestCount > 1
+        ? `${complementRequestCount} demandes de complément — dernière le`
+        : "Complément demandé le";
       details.push({
-        text: `Complément demandé le ${formatDate(complementInstructionDate)}`,
+        text: `${complementLabel} ${formatDate(complementInstructionDate)}`,
         variant: "date",
       });
     }
@@ -2502,9 +2532,11 @@ const STATUTS = {
 
     injectRecreatedStepperCss();
 
+    // Le statut détaillé prime : id_active désigne une étape macro et peut
+    // rester à 11 (SDANF2) alors que le dossier est déjà PPID.
     const statusIndex = inferTrackingIndex(apiInfos.statutCode);
     const friseIndex = inferFriseTrackingIndex(apiInfos);
-    const inferredIndex = friseIndex ?? statusIndex;
+    const inferredIndex = statusIndex ?? friseIndex ?? 0;
     let currentIndex = inferredIndex;
     const ceremonyStepIndex = getCeremonyStepIndex();
     if (
