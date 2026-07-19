@@ -113,7 +113,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.7.0";
+  const extensionVersion = "3.7.1";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -465,6 +465,31 @@
     const fromDate = getStepKnownDate(fromStep.key, fromIndex, currentIndex, apiInfos);
     const toDate = getStepKnownDate(toStep.key, toIndex, currentIndex, apiInfos);
     return formatDurationBetween(fromDate, toDate);
+  }
+
+  function getDurationFromNearestKnownPreviousStep(
+    visibleSteps,
+    beforeOffset,
+    toStep,
+    toIndex,
+    currentIndex,
+    apiInfos
+  ) {
+    const toDate = getStepKnownDate(toStep.key, toIndex, currentIndex, apiInfos);
+    if (!toDate) return null;
+
+    for (let offset = beforeOffset; offset >= 0; offset--) {
+      const previous = visibleSteps[offset];
+      const previousDate = getStepKnownDate(
+        previous.step.key,
+        previous.index,
+        currentIndex,
+        apiInfos
+      );
+      const duration = formatDurationBetween(previousDate, toDate);
+      if (duration) return duration;
+    }
+    return null;
   }
 
   function hasNaturalisationData(apiInfos) {
@@ -1499,6 +1524,19 @@ const STATUTS = {
   function shouldShowStepInStepper(step, index, currentIndex, phase, apiInfos) {
     const statusCode = apiInfos?.statutCode;
     const typeFrise = getFriseType(apiInfos);
+    if (step.key === "traitement_instruction" && index < currentIndex) {
+      const depositIndex = getStepIndexByKey("demande_deposee");
+      const depositDate = getStepKnownDate(
+        "demande_deposee",
+        depositIndex,
+        currentIndex,
+        apiInfos
+      );
+      const receiptDate = parseAnchorDate(apiInfos?.recepisseCreated);
+      // This instruction point is purely transitional once both surrounding
+      // milestones are complete. Removing it makes the dated interval direct.
+      if (depositDate && receiptDate && receiptDate >= depositDate) return false;
+    }
     const isOfficialRoute = [
       "COMPLET",
       "DECISION_PLATEFORME_AVANT_VF",
@@ -1510,10 +1548,20 @@ const STATUTS = {
     ].includes(typeFrise);
     if (isOfficialRoute) {
       const routeStepKeys = new Set(Object.values(getFriseStepKeys(apiInfos)));
+      // ANEF represents the interview with one official frise point, while
+      // the extension separates the convocation (which carries the place)
+      // from the interview/account-report. Keep the companion step visible.
+      const isInterviewCompanion =
+        step.key === "entretien_assimilation" &&
+        routeStepKeys.has("compte_rendu_assimilation");
       // The detailed API status can be more precise than id_active (for
       // example PPID while the official frise remains on SDANF2). Keep that
       // current point, but do not invent the other missing route steps.
-      if (!routeStepKeys.has(step.key) && index !== currentIndex) return false;
+      if (
+        !routeStepKeys.has(step.key) &&
+        !isInterviewCompanion &&
+        index !== currentIndex
+      ) return false;
     }
     if (
       step.key === "ceremonie_naturalisation" &&
@@ -1674,6 +1722,19 @@ const STATUTS = {
             currentIndex,
             apiInfos
           );
+          // The instruction step before a receipt has no standalone date in
+          // ANEF. When the receipt date is known, bridge back to the closest
+          // earlier dated step so its elapsed time is still visible.
+          if (!lineInDuration && step.key === "recepisse_completude") {
+            lineInDuration = getDurationFromNearestKnownPreviousStep(
+              visibleSteps,
+              visibleOffset - 1,
+              step,
+              index,
+              currentIndex,
+              apiInfos
+            );
+          }
         }
       } else if (
         phase.key !== "prefecture" &&
@@ -1714,22 +1775,39 @@ const STATUTS = {
   function createStepIcon(step) {
     const stepKey = step.key;
     const iconByStep = {
+      saisie_demande: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"></path><path d="M12 15H8v-4l9-9 4 4-9 9Z"></path><path d="m15 4 4 4"></path></svg>`,
       demande_envoyee: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7Z"></path></svg>`,
-      examen_pieces: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-9 9 8.7 8.7 0 0 1-6-2.4"></path><path d="M3 12a9 9 0 0 1 15-6.7"></path><path d="M18 3v5h-5"></path><path d="M6 21v-5h5"></path></svg>`,
+      examen_pieces: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h7"></path><path d="M14 2v6h6"></path><path d="M8 13h4"></path><path d="M8 17h3"></path><circle cx="17" cy="17" r="3"></circle><path d="m19.5 19.5 2.5 2.5"></path></svg>`,
       demande_deposee: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v1"></path><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7H3"></path></svg>`,
       dossier_depose: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v1"></path><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7H3"></path></svg>`,
+      traitement_instruction: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h7"></path><path d="M14 2v6h6"></path><path d="M8 13h4"></path><circle cx="17" cy="17" r="3"></circle><path d="m19.5 19.5 2.5 2.5"></path></svg>`,
       traitement_plateforme_1: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path><path d="M15 5l4 4"></path></svg>`,
       recepisse_completude: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h6"></path></svg>`,
       traitement_plateforme_2: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path><path d="M15 5l4 4"></path></svg>`,
-      entretien_assimilation: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"></path><path d="M8 9h8"></path><path d="M8 13h5"></path></svg>`,
+      entretien_assimilation: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3 10h18"></path><path d="M8 15h8"></path></svg>`,
       compte_rendu_assimilation: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="m9 15 2 2 4-4"></path></svg>`,
-      traitement_plateforme_3: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path><path d="M15 5l4 4"></path></svg>`,
-      decision_prefecture: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="m16 8 4 4-4 4"></path></svg>`,
-      traitement_sdanf_1: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="M3 12h18"></path><path d="m16 8 4 4-4 4"></path></svg>`,
-      traitement_scec: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>`,
+      traitement_plateforme_3: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18"></path><path d="m4 10 8-6 8 6"></path><path d="M6 10v11"></path><path d="M10 10v11"></path><path d="M14 10v11"></path><path d="M18 10v11"></path></svg>`,
+      decision_prefecture: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18"></path><path d="m4 10 8-6 8 6"></path><path d="M6 10v11"></path><path d="M10 10v11"></path><path d="M14 10v11"></path><path d="M18 10v11"></path></svg>`,
+      traitement_sdanf_1: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10Z"></path><circle cx="12" cy="11" r="3"></circle><path d="m14.2 13.2 2.3 2.3"></path></svg>`,
+      controle_a_effectuer: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10Z"></path><path d="m8.5 12 2.2 2.2 4.8-5"></path></svg>`,
+      controle_hierarchique_sdanf_1: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v5"></path><path d="M6 8h12"></path><path d="M6 8v5"></path><path d="M18 8v5"></path><rect x="3" y="13" width="6" height="5" rx="1"></rect><rect x="15" y="13" width="6" height="5" rx="1"></rect><path d="m10 16 1.5 1.5L14 15"></path></svg>`,
+      traitement_scec: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><circle cx="10" cy="14" r="2"></circle><path d="M7 19c.7-1.5 1.7-2.2 3-2.2s2.3.7 3 2.2"></path><path d="M16 13h2"></path></svg>`,
+      controle_pec_a_faire: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h7"></path><path d="M14 2v6h6"></path><circle cx="17" cy="17" r="3"></circle><path d="m19.5 19.5 2.5 2.5"></path></svg>`,
+      traitement_sdanf_2: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"></path><path d="m5 7 3-4 3 4c-.9.7-1.9 1-3 1S5.9 7.7 5 7Z"></path><path d="m13 7 3-4 3 4c-.9.7-1.9 1-3 1s-2.1-.3-3-1Z"></path><path d="M5 21h14"></path></svg>`,
       decision_prise: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2Z"></path><path d="m22 6-10 7L2 6"></path></svg>`,
-      inseree_dans_decret: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2Z"></path><path d="m22 6-10 7L2 6"></path></svg>`,
-      decret_naturalisation_publie: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" x2="4" y1="22" y2="15"></line></svg>`,
+      controle_en_attente_retour_hierarchique: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v5"></path><path d="M6 8h12"></path><path d="M6 8v5"></path><path d="M18 8v5"></path><rect x="3" y="13" width="6" height="5" rx="1"></rect><rect x="15" y="13" width="6" height="5" rx="1"></rect><path d="m10 16 1.5 1.5L14 15"></path></svg>`,
+      controle_decision_a_editer: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M8 16h2l6-6-2-2-6 6v2Z"></path></svg>`,
+      controle_en_attente_signature: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20c3.5-3 5.5-2 7-1s3.5 2 7-1"></path><path d="M6 16 17 5l2 2L8 18"></path><path d="m15 7 2 2"></path></svg>`,
+      transmis_a_ac: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18"></path><path d="m4 10 8-6 8 6"></path><path d="M6 10v11"></path><path d="M10 10v11"></path><path d="M14 10v11"></path><path d="M18 10v11"></path><path d="M8 15h8"></path><path d="m13 12 3 3-3 3"></path></svg>`,
+      a_verifier_avant_insertion_decret: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 7v5c0 5.5 3.4 8.2 8 10 4.6-1.8 8-4.5 8-10V7l-8-4Z"></path><path d="m8.5 12 2.2 2.2 4.8-5"></path></svg>`,
+      prete_pour_insertion_decret: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"></rect><path d="M9 3.5h6v3H9z"></path><path d="m8 14 2.5 2.5L16 10.5"></path></svg>`,
+      decret_en_preparation: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10a2 2 0 0 1 2 2v16H5V5a2 2 0 0 1 2-2Z"></path><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="M8 16h5"></path></svg>`,
+      decret_a_qualifier: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13 13 20l-9-9V4h7l9 9Z"></path><circle cx="8.5" cy="8.5" r="1"></circle><path d="m14 14 4 4"></path></svg>`,
+      decret_en_validation: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 7v5c0 5.5 3.4 8.2 8 10 4.6-1.8 8-4.5 8-10V7l-8-4Z"></path><path d="m8.5 12 2.2 2.2 4.8-5"></path></svg>`,
+      inseree_dans_decret: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12a2 2 0 0 1 2 2v16H4V5a2 2 0 0 1 2-2Z"></path><path d="M8 8h8"></path><path d="M8 12h8"></path><path d="m8 16 2 2 5-5"></path></svg>`,
+      decret_envoye_prefecture: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18"></path><path d="m4 10 8-6 8 6"></path><path d="M6 10v11"></path><path d="M10 10v11"></path><path d="M14 10v11"></path><path d="M18 10v11"></path><path d="M5 15h9"></path><path d="m11 12 3 3-3 3"></path></svg>`,
+      notification_envoyee: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path></svg>`,
+      decret_naturalisation_publie: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4z"></path><path d="M7 8h10"></path><path d="M7 12h4"></path><path d="M7 16h7"></path><path d="m16 14 1.5 1.5L21 12"></path></svg>`,
       ceremonie_naturalisation: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8.5" cy="10" r="2"></circle><path d="M6 16c.7-1.4 1.5-2 2.5-2s1.8.6 2.5 2"></path><path d="M14 9h4"></path><path d="M14 13h4"></path><path d="M14 17h3"></path></svg>`,
       demande_en_cours_rapo: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"></path><path d="M7 21h10"></path><path d="M12 3v18"></path><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"></path></svg>`,
       recours_envoye: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7Z"></path></svg>`,
@@ -2250,6 +2328,18 @@ const STATUTS = {
         color: #5c5c78;
         font-size: 10px;
       }
+      .anf-track-step-detail.is-total-duration {
+        align-self: center;
+        margin-top: 2px;
+        padding: 3px 6px;
+        border: 1px solid rgba(225, 0, 15, 0.22);
+        border-radius: 999px;
+        background: rgba(225, 0, 15, 0.07);
+        color: var(--anf-rouge);
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 1.25;
+      }
       .anf-track-step-detail.is-status-card {
         padding: 5px 6px;
         border-radius: 6px;
@@ -2478,6 +2568,83 @@ const STATUTS = {
           padding: 1px 3px;
         }
       }
+      /* Visual hierarchy: make the two macro phases and the current step
+         immediately legible without changing the ANEF status semantics. */
+      #anf-extension-stepper-root {
+        background:
+          radial-gradient(circle at 8% 8%, rgba(0, 0, 145, 0.055), transparent 28%),
+          radial-gradient(circle at 92% 10%, rgba(225, 0, 15, 0.045), transparent 25%);
+      }
+      #anf-extension-stepper-root .anf-stepper-inner {
+        border-radius: 16px;
+      }
+      .anf-track-progress-wrap {
+        padding: 12px 14px;
+        border: 1px solid rgba(0, 0, 145, 0.09);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.78);
+        box-shadow: 0 8px 20px rgba(0, 0, 145, 0.045);
+      }
+      .anf-track-progress {
+        height: 8px;
+        border-radius: 999px;
+        background: #e8e8f2;
+        overflow: hidden;
+      }
+      .anf-track-progress-fill {
+        border-radius: inherit;
+        background: linear-gradient(90deg, #000091 0%, #3535b5 58%, #e1000f 100%);
+        box-shadow: 0 0 12px rgba(53, 53, 181, 0.34);
+        transition: width 680ms cubic-bezier(.22, 1, .36, 1);
+      }
+      .anf-macro-block-inner {
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 8px 22px rgba(0, 0, 145, 0.055);
+        transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+      }
+      .anf-macro-block-inner::before {
+        content: "";
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 4px;
+        background: #d8d8e8;
+      }
+      .anf-macro-block.is-done .anf-macro-block-inner::before { background: #000091; }
+      .anf-macro-block.is-current .anf-macro-block-inner::before { background: #e1000f; }
+      .anf-macro-block.is-current .anf-macro-block-inner {
+        box-shadow: 0 12px 30px rgba(225, 0, 15, 0.11);
+      }
+      .anf-macro-badge {
+        letter-spacing: 0.02em;
+        box-shadow: 0 2px 7px rgba(0, 0, 0, 0.06);
+      }
+      .anf-step-node {
+        transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, background 180ms ease;
+      }
+      .anf-track-step.is-done .anf-step-node {
+        box-shadow: 0 4px 10px rgba(0, 0, 145, 0.22);
+      }
+      .anf-track-step.is-current .anf-step-node {
+        box-shadow: 0 0 0 6px rgba(225, 0, 15, 0.1), 0 6px 14px rgba(225, 0, 15, 0.18);
+      }
+      .anf-step-line.is-done {
+        background: linear-gradient(90deg, #000091, #3535b5);
+      }
+      .anf-step-duration {
+        box-shadow: 0 3px 8px rgba(0, 0, 145, 0.09);
+      }
+      .anf-track-step.is-current .anf-step-copy {
+        box-shadow: inset 0 0 0 1px rgba(225, 0, 15, 0.08);
+      }
+      @media (hover: hover) and (pointer: fine) {
+        .anf-macro-block-inner:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 13px 28px rgba(0, 0, 145, 0.1);
+        }
+        .anf-track-step:hover .anf-step-node { transform: translateY(-2px) scale(1.06); }
+        .anf-track-step:hover .anf-track-step-title { color: #000091; }
+      }
       @media (prefers-reduced-motion: reduce) {
         #anf-extension-stepper-root *,
         #anf-extension-stepper-root *::before,
@@ -2520,7 +2687,17 @@ const STATUTS = {
     );
 
     if (stepKey === "demande_envoyee" && demandeDate) {
-      details.push({ text: formatDate(demandeDate), variant: "date" });
+      const totalDuration = formatDurationBetween(
+        parseAnchorDate(demandeDate),
+        new Date()
+      );
+      details.push({
+        text: formatDate(demandeDate),
+        variant: "date",
+      });
+      if (totalDuration) {
+        details.push({ text: `${totalDuration}`, variant: "total-duration" });
+      }
     }
     if (stepKey === "examen_pieces" && complementInstructionDate) {
       const complementLabel = complementRequestCount > 1
@@ -2706,9 +2883,8 @@ const STATUTS = {
           <div class="anf-track-progress-meta">
             <div class="anf-track-progress-copy">
               <span><strong>${currentPhase.title}</strong> · ${escapeHtml(currentStepTitle)}</span>
-                          ${longDescription ? `<p class="anf-track-progress-desc">${escapeHtml(longDescription)}</p>` : ""}
-
-              </div>
+              ${longDescription ? `<p class="anf-track-progress-desc">${escapeHtml(longDescription)}</p>` : ""}
+            </div>
             <span>${progressPct}% · <span class="anf-stepper-version">v${extensionVersion}</span></span>
           </div>
           <div class="anf-track-progress" aria-hidden="true">
