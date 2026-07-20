@@ -113,7 +113,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.7.1";
+  const extensionVersion = "3.7.2";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
@@ -232,27 +232,27 @@
     const type = getFriseType(source);
     if (type === "DECISION_RAPO") return {};
     if (type === "DECISION_PLATEFORME_AVANT_VF") {
-      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "traitement_instruction", 4: "decision_prefecture" };
+      return { 0: "demande_envoyee", 1: "demande_envoyee", 2: "examen_pieces", 3: "traitement_instruction", 4: "decision_prefecture" };
     }
     if (type === "DECISION_PLATEFORME_AVANT_RECEPISSE_COMPLETUDE") {
-      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "decision_prefecture" };
+      return { 0: "demande_envoyee", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "decision_prefecture" };
     }
     if (type === "DECISION_PLATEFORME_AVANT_EA") {
-      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "decision_prefecture" };
+      return { 0: "demande_envoyee", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "decision_prefecture" };
     }
     if (type === "DECISION_PLATEFORME_APRES_EA") {
-      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "compte_rendu_assimilation", 8: "traitement_plateforme_3", 9: "decision_prefecture" };
+      return { 0: "demande_envoyee", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "entretien_assimilation", 8: "traitement_plateforme_3", 9: "decision_prefecture" };
     }
     if (type === "DECISION_SDANF_AVANT_SCEC") {
-      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "compte_rendu_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "decision_prise" };
+      return { 0: "demande_envoyee", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "entretien_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "decision_prise" };
     }
     if (type === "COMPLET" && hasScecStep(source) === false) {
-      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "compte_rendu_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "decision_prise", 11: "ceremonie_naturalisation" };
+      return { 0: "demande_envoyee", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "entretien_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "decision_prise", 11: "ceremonie_naturalisation" };
     }
     if (type === "DECISION_SDANF_APRES_SCEC") {
-      return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "compte_rendu_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "traitement_scec", 11: "traitement_sdanf_2", 12: "decision_prise" };
+      return { 0: "demande_envoyee", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "entretien_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "traitement_scec", 11: "traitement_sdanf_2", 12: "decision_prise" };
     }
-    return { 0: "saisie_demande", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "compte_rendu_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "traitement_scec", 11: "traitement_sdanf_2", 12: "decision_prise", 13: "ceremonie_naturalisation" };
+    return { 0: "demande_envoyee", 1: "demande_envoyee", 2: "examen_pieces", 3: "demande_deposee", 4: "traitement_instruction", 5: "recepisse_completude", 6: "traitement_instruction", 7: "entretien_assimilation", 8: "traitement_plateforme_3", 9: "traitement_sdanf_1", 10: "traitement_scec", 11: "traitement_sdanf_2", 12: "decision_prise", 13: "ceremonie_naturalisation" };
   }
 
   function getContextualStatusDescription(statusCode, friseData) {
@@ -437,8 +437,6 @@
         return recepisseCreated;
       case "entretien_assimilation":
         return assimilationDate;
-      case "compte_rendu_assimilation":
-        return index === currentIndex ? dateStatut : null;
       case "decision_prise":
         return index === currentIndex ? dateStatut : null;
       case "decret_naturalisation_publie":
@@ -1190,15 +1188,13 @@ const STATUTS = {
 
   function buildTrackingSteps() {
     const prefecture = [
-      { key: "saisie_demande", code: "draft", group: "prefecture", etape: 0, sub: "0", title: "Saisie de la demande" },
       { key: "demande_envoyee", group: "prefecture", etape: 1, sub: "1", title: "Demande envoyée" },
       { key: "dossier_depose", code: "dossier_depose", group: "prefecture", etape: 2, sub: "2", title: "Dépôt / enregistrement du dossier", locked: true },
-      { key: "examen_pieces", code: "verification_formelle_a_traiter", group: "prefecture", etape: 3, sub: "3", title: "Examen des pièces en cours" },
+      { key: "examen_pieces", code: "verification_formelle_a_traiter", group: "prefecture", etape: 3, sub: "3", title: "Examen des pièces" },
       { key: "demande_deposee", group: "prefecture", etape: 4, title: "Demande déposée" },
       { key: "traitement_instruction", group: "prefecture", etape: 4, title: "Traitement en cours" },
-      { key: "recepisse_completude", code: "instruction_recepisse_completude_a_envoyer", group: "prefecture", etape: 5, sub: "5", title: "Réception du récépissé de complétude" },
-      { key: "entretien_assimilation", code: "ea_en_attente_ea", group: "prefecture", etape: 7, sub: "7", title: "Convocation à l'entretien", locked: true },
-      { key: "compte_rendu_assimilation", code: "ea_crea_a_valider", group: "prefecture", etape: 7, sub: "7b", title: "Entretien / compte-rendu", locked: true },
+      { key: "recepisse_completude", code: "instruction_recepisse_completude_a_envoyer", group: "prefecture", etape: 5, sub: "5", title: "Récépissé de complétude" },
+      { key: "entretien_assimilation", code: "ea_en_attente_ea", group: "prefecture", etape: 7, sub: "7", title: "Entretien d'assimilation", locked: true },
       { key: "traitement_plateforme_3", group: "prefecture", etape: 8, title: "Traitement en cours (Plateforme)", platform: true },
       { key: "decision_prefecture", code: "prop_decision_pref_a_effectuer", group: "prefecture", etape: 8, sub: "8", title: "Décision préfecture" },
     ];
@@ -1336,6 +1332,10 @@ const STATUTS = {
     }
 
     const STATUS_STEP_ALIASES = {
+      draft: "demande_envoyee",
+      // ANEF exposes both the convocation and the account-report statuses for
+      // its single official "Entretien d'assimilation" frise point.
+      ea_crea_a_valider: "ea_en_attente_ea",
       decret_naturalisation_publie_jo: "decret_naturalisation_publie",
       decret_publie: "decret_naturalisation_publie",
     };
@@ -1548,18 +1548,11 @@ const STATUTS = {
     ].includes(typeFrise);
     if (isOfficialRoute) {
       const routeStepKeys = new Set(Object.values(getFriseStepKeys(apiInfos)));
-      // ANEF represents the interview with one official frise point, while
-      // the extension separates the convocation (which carries the place)
-      // from the interview/account-report. Keep the companion step visible.
-      const isInterviewCompanion =
-        step.key === "entretien_assimilation" &&
-        routeStepKeys.has("compte_rendu_assimilation");
       // The detailed API status can be more precise than id_active (for
       // example PPID while the official frise remains on SDANF2). Keep that
       // current point, but do not invent the other missing route steps.
       if (
         !routeStepKeys.has(step.key) &&
-        !isInterviewCompanion &&
         index !== currentIndex
       ) return false;
     }
@@ -1775,7 +1768,6 @@ const STATUTS = {
   function createStepIcon(step) {
     const stepKey = step.key;
     const iconByStep = {
-      saisie_demande: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"></path><path d="M12 15H8v-4l9-9 4 4-9 9Z"></path><path d="m15 4 4 4"></path></svg>`,
       demande_envoyee: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4 20-7Z"></path></svg>`,
       examen_pieces: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h7"></path><path d="M14 2v6h6"></path><path d="M8 13h4"></path><path d="M8 17h3"></path><circle cx="17" cy="17" r="3"></circle><path d="m19.5 19.5 2.5 2.5"></path></svg>`,
       demande_deposee: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v1"></path><path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7H3"></path></svg>`,
@@ -1785,7 +1777,6 @@ const STATUTS = {
       recepisse_completude: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h6"></path></svg>`,
       traitement_plateforme_2: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path><path d="M15 5l4 4"></path></svg>`,
       entretien_assimilation: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3 10h18"></path><path d="M8 15h8"></path></svg>`,
-      compte_rendu_assimilation: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="m9 15 2 2 4-4"></path></svg>`,
       traitement_plateforme_3: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18"></path><path d="m4 10 8-6 8 6"></path><path d="M6 10v11"></path><path d="M10 10v11"></path><path d="M14 10v11"></path><path d="M18 10v11"></path></svg>`,
       decision_prefecture: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18"></path><path d="m4 10 8-6 8 6"></path><path d="M6 10v11"></path><path d="M10 10v11"></path><path d="M14 10v11"></path><path d="M18 10v11"></path></svg>`,
       traitement_sdanf_1: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10Z"></path><circle cx="12" cy="11" r="3"></circle><path d="m14.2 13.2 2.3 2.3"></path></svg>`,
