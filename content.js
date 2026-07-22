@@ -6,6 +6,10 @@
       "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/dossier-stepper",
     API_FRISE_ENDPOINT:
       "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/usager/dossiers/frise-stepper",
+    // Current RAPO details. A failure is deliberately non-blocking for the
+    // stepper, which continues to use the dossier status and notifications.
+    API_RAPO_ENDPOINT:
+      "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/usager/dossiers/rapo",
     API_DOSSIER_ENDPOINT:
       "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/usager/dossiers/",
     WAIT_TIME: 100,
@@ -15,6 +19,10 @@
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function logDebug(event, details = {}) {
+    console.log(`[ANF debug] ${event}`, details);
   }
 
   function prefersReducedMotion() {
@@ -30,10 +38,14 @@
   }
 
   function isLoginPromptVisible() {
-    return Boolean(
+    const hasHeaderLoginLink = Boolean(
       document.querySelector('edu-item-link[data-item="Se connecter"]') ||
         document.querySelector('edu-item-link[data-item="Sign in"]')
     );
+    const hasLoginButton = Array.from(document.querySelectorAll("button")).some(
+      (button) => ["Se connecter", "Sign in"].includes(button.textContent.trim())
+    );
+    return hasHeaderLoginLink || hasLoginButton;
   }
 
   function isUserLoggedIn() {
@@ -45,8 +57,8 @@
   }
 
   function getAuthState() {
-    if (isUserLoggedIn()) return "logged-in";
     if (isLoginPromptVisible()) return "logged-out";
+    if (isUserLoggedIn()) return "logged-in";
     return "unknown";
   }
 
@@ -70,6 +82,7 @@
       const response = await fetch(CONFIG.API_ENDPOINT, {
         credentials: "include",
       });
+      logDebug("Réponse dossier-stepper", { status: response.status });
 
       if (response.status === 404 || response.status === 204) {
         return null;
@@ -78,7 +91,7 @@
       if (!response.ok) {
         if (response.status === 401) {
           console.log(
-            "Warning: Extension API Naturalisation — API stepper 401, session expirée"
+            "Warning: Extension API Naturalisation - API stepper 401, session expirée"
           );
         }
         return null;
@@ -87,7 +100,7 @@
       return response;
     } catch (error) {
       console.log(
-        "Warning: Extension API Naturalisation — API stepper inaccessible:",
+        "Warning: Extension API Naturalisation - API stepper inaccessible:",
         error
       );
       return null;
@@ -99,13 +112,14 @@
       const response = await fetch(CONFIG.API_FRISE_ENDPOINT, {
         credentials: "include",
       });
+      logDebug("Réponse frise-stepper", { status: response.status });
       if (!response.ok) return null;
 
       const payload = await response.json();
       return payload?.data ?? payload;
     } catch (error) {
       console.log(
-        "Warning: Extension API Naturalisation — API frise inaccessible:",
+        "Warning: Extension API Naturalisation - API frise inaccessible:",
         error
       );
       return null;
@@ -113,11 +127,32 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.7.2";
+  const extensionVersion = "3.7.4";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   // Fonction de décryptage dédiée à Kamal : Round 2
   function IamKamal_23071993_v2(encryptedData) {
+    const statusValue =
+      typeof encryptedData === "object" && encryptedData !== null
+        ? encryptedData.type ?? encryptedData.code ?? encryptedData.value ?? ""
+        : encryptedData;
+    let rawStatus = String(statusValue || "").trim();
+    try {
+      rawStatus = decodeURIComponent(rawStatus);
+    } catch {
+      // The value is not URL-encoded; use it as returned by ANEF.
+    }
+    const directStatus = rawStatus.toLowerCase();
+    // ANEF can return a status code already decoded. Do not try to decrypt a
+    // plain status: RSA-OAEP rightfully rejects it because it is not a
+    // 2048-bit ciphertext.
+    if (
+      Object.prototype.hasOwnProperty.call(STATUTS, directStatus) ||
+      (/^[a-z][a-z0-9_]*$/i.test(rawStatus) && rawStatus.length <= 96)
+    ) {
+      return directStatus;
+    }
+
     const rsaKey = {
       privateKeyPem:
         "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC/WvhR9YrO6DHY\n0UpAoIlIuDoF3PtLEJ3J0T5FOLAPSY2sa33AnECl6jWfM7uLuojuTDbfIz6J3vAo\nsNUzwYFNHKx3EG1o6cYzjWm2LzZDa4e25wYlXcL2r3T0mFGS9DT7adKlomNURj4L\nf2WUt11oNH8RYyH/uNk+kIL0HRJLtfTjyyjlWSyjUUDD1ATYZwjnQS2HvdcqJ+Go\n3TTvqTG7yOPzC/lwSKG3zE3eL+pi9E9Lgw9NlSanewOu7toB9NiKwzP3kfSBNpkz\nSv4UBNClfp1UG+psSPnTx3Csil9TbPjSe99ZZ0/ffPf0h2xoga/7rWgScQwHzN9E\ncrvEfDgxAgMBAAECggEAa08Ikm2wOffcfEph6XwdgLpPT5ptEdtvoQ3GbessUGZf\nHKHrE2iMmH6PM4g/VEx3Hat/2gJZv9dVtnv0E+IgMK4zyVFdCciPbbmP3qr7MzPK\nF7fWqn26J7ydSc1hcZehXpwplNlL+qaphKkcvhlWOGm4GHgPSOjQa1V/GoZzDCE1\ne1z9KpVuMMiV4d89FFiE3MHtnrmMnmUdbnesffVftnPmzkkGKKWTCL1BLrdEXgCz\nGSFdqCo+PjcJjEojjmqHhgzTyjPOR6JGh0FqG9ht3aduIQMZfKR1p2+Ds18NlOZu\nT60Lyc7Ud/d0H0f2h9GfftHYCSLkIxfTaAmoYXzXAQKBgQDoWc91xlh8Kb3vmIN1\nIoVY2yhviDTpUqkGxvjt6WYmu38CFpEwSO0cpTVCAkWRKvjKLUOoCAaqfaTrN04t\nLG85Z18gvSQKmncfv0zrKaTN/FrnKOA//hPCAcveDT6Ir9SCxgVmNBox70k89eQ+\n5cDOZACqFhKcoAQa/LjF621HBQKBgQDS1Pi+GhSwbn6nBiqQdzU1+RpXdburzubd\n3dgNlrAOmLoFEGqYNzaMcKbNljNTnAdv/FX6/NYaQGx/pYTs26o/SZZ+SE7Cl2RS\nRJIuWeskuNEoH4W06JgO1djyHVOiHmKbyaATWCjoZSQnnHo8OUBUKOJpw8mrNlQl\nIYUE0OLcPQKBgQDD3LlKUZnTiKhoqYrfGeuIfK34Xrwjlx+O6/l5LA+FRPaKfxWC\nu2bNh+J+M0YLWksAuulWYvWjkGiOMz++Sr+zhxUkluwj2BPk+jDP53nafgju5YEr\n0HU9TKBbHZUCSh384wo4HmGaiFiXf7wY3ToLgTciKZsk1qq/SRxFEvE6NQKBgHcS\nCs2qgybFsMf55o4ilS2/Ww4sEurMdny1bvD1usbzoJN9mwYOoMMeWEZh3ukIhPbN\nJ24R34WB/wT0YSc4RGVr1Q/LHJgv0lvYGEsPQ4tAyfeEHgp3FnHCerz6rSIxUPW1\nIK/sKWZewNWSPULH/rnJQV4EUmBc1ZcG4E5A/u7tAoGBAMneO96PMhJFQDhsakTL\nvGTbhuwBnFjbSuxmyebhszASOuKm8XTVDe004AZTSy7lAm+iYTkfeRbfVrIGWElT\n5DWhmlN/zNTdX56dQWG3P5M48+bxZFXz0YCBAZJw8jZ5LcFuKrr5tQbcNZN9Pqgk\nQJNdXtE3G7SjkDOn36yZSaXp\n-----END PRIVATE KEY-----",
@@ -134,6 +169,12 @@
       }
     };
     try {
+      const base64Status = rawStatus.replace(/-/g, "+").replace(/_/g, "/");
+      const paddingLength = (4 - (base64Status.length % 4)) % 4;
+      const paddedBase64Status = base64Status + "=".repeat(paddingLength);
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(paddedBase64Status)) {
+        return null;
+      }
       var privateKey = forge.pki.decryptRsaPrivateKey(
         rsaKey.privateKeyPem.trim(),
         rsaKey.passphrase
@@ -143,7 +184,10 @@
           "Échec de décryptage de la clé privée. Vérifiez la passphrase."
         );
       }
-      var decodedData = forge.util.decode64(encryptedData);
+      var decodedData = forge.util.decode64(paddedBase64Status);
+      if (decodedData.length !== 256) {
+        return null;
+      }
       var buffer = forge.util.createBuffer(decodedData, "raw");
       var decryptedData = privateKey.decrypt(buffer.getBytes(), "RSA-OAEP", {
         md: forge.md.sha256.create(),
@@ -152,7 +196,7 @@
       });
       return extractFormData(decryptedData);
     } catch (error) {
-      console.log("Error: Erreur de décryptage :", error);
+      console.debug("Extension API Naturalisation - statut chiffré non exploitable");
       return null;
     }
   }
@@ -382,6 +426,57 @@
     return result;
   }
 
+  function getNationaliteNotifications(notifications, idDossier) {
+    if (!Array.isArray(notifications)) return [];
+    return notifications.filter(
+      (item) =>
+        String(item?.id_demande) === String(idDossier) &&
+        item?.type_notification === "NATIONALITE"
+    );
+  }
+
+  function getLatestNotificationDate(notifications, predicate) {
+    return pickLatestRawDate(
+      ...notifications.filter(predicate).map((item) => item?._created)
+    );
+  }
+
+  function extractNotificationMarkers(notifications, idDossier) {
+    const nationaliteNotifications = getNationaliteNotifications(
+      notifications,
+      idDossier
+    );
+    const hasMotif = (item, motif) =>
+      String(item?.motif_notification || "").toUpperCase() === motif;
+    const motifIncludes = (item, fragment) =>
+      String(item?.motif_notification || "").toUpperCase().includes(fragment);
+
+    return {
+      depotConfirmed: getLatestNotificationDate(
+        nationaliteNotifications,
+        (item) => hasMotif(item, "CONFIRMATION_DEPOT")
+      ),
+      recepisseCreated: getLatestNotificationDate(
+        nationaliteNotifications,
+        (item) => hasMotif(item, "RECEPISSE_COMPLETUDE_ENVOYE")
+      ),
+      complementNotified: getLatestNotificationDate(
+        nationaliteNotifications,
+        (item) =>
+          motifIncludes(item, "DEMANDE_COMPLEMENT") &&
+          !motifIncludes(item, "RAPO")
+      ),
+      recoursNotified: getLatestNotificationDate(
+        nationaliteNotifications,
+        (item) => motifIncludes(item, "RAPO")
+      ),
+      recoursDecisionNotified: getLatestNotificationDate(
+        nationaliteNotifications,
+        (item) => hasMotif(item, "DECISION_RAPO")
+      ),
+    };
+  }
+
   function resolveDemandeDeposeeRawDate(apiInfos, index, currentIndex) {
     const {
       demandeDate,
@@ -420,6 +515,9 @@
       dateStatut,
       decretDate,
       decretId,
+      recoursSubmittedAt,
+      recoursNotifiedAt,
+      recoursDecisionNotifiedAt,
     } = apiInfos;
 
     switch (stepKey) {
@@ -431,8 +529,9 @@
           (index <= currentIndex ? dateStatut : null)
         );
       case "demande_deposee":
-      case "dossier_depose":
         return resolveDemandeDeposeeRawDate(apiInfos, index, currentIndex);
+      case "dossier_depose":
+        return apiInfos.depotConfirmed || null;
       case "recepisse_completude":
         return recepisseCreated;
       case "entretien_assimilation":
@@ -444,8 +543,19 @@
         return decretDate || (decretId && index === currentIndex ? dateStatut : null);
       case "ceremonie_naturalisation":
       case "recours_envoye":
+        return (
+          recoursSubmittedAt ||
+          recoursNotifiedAt ||
+          (index === currentIndex ? dateStatut : null)
+        );
       case "recours_statut_courant":
+        return (
+          recoursSubmittedAt ||
+          recoursNotifiedAt ||
+          (index === currentIndex ? dateStatut : null)
+        );
       case "recours_decision_prise":
+        return recoursDecisionNotifiedAt || (index === currentIndex ? dateStatut : null);
       case "demande_en_cours_rapo":
         return index === currentIndex ? dateStatut : null;
       default:
@@ -506,38 +616,66 @@
   }
 
   async function fetchApiInfos() {
+    logDebug("Chargement des données initiales");
     const [response, friseData] = await Promise.all([
       fetchStepperOnce(),
       fetchFriseOnce(),
     ]);
-    if (!response) return null;
+    if (!response) {
+      logDebug("Arrêt : dossier-stepper indisponible");
+      return null;
+    }
 
     let dossierData;
     try {
       dossierData = await response.json();
     } catch {
+      logDebug("Arrêt : réponse dossier-stepper non JSON");
       return null;
     }
 
     if (!dossierData?.dossier?.id || !dossierData?.dossier?.statut) {
+      logDebug("Arrêt : données dossier incomplètes", {
+        hasDossier: Boolean(dossierData?.dossier),
+        hasId: Boolean(dossierData?.dossier?.id),
+        hasStatus: Boolean(dossierData?.dossier?.statut),
+      });
       return null;
     }
 
     const data = { dossier: dossierData.dossier };
     const idDossier = dossierData.dossier.id;
-    const dossierStatusCode = IamKamal_23071993_v2(data.dossier.statut);
+    logDebug("Statut dossier reçu", {
+      statusType: typeof data.dossier.statut,
+      statusLength: String(data.dossier.statut || "").length,
+      hasFrise: Boolean(friseData),
+    });
+    let dossierStatusCode = IamKamal_23071993_v2(data.dossier.statut);
+    const hasActiveFriseStep = Number.isFinite(Number(friseData?.id_active));
+    let dossierStatus;
     if (
       !dossierStatusCode ||
       dossierStatusCode === "-" ||
       String(dossierStatusCode).trim() === ""
     ) {
-      return null;
+      if (!hasActiveFriseStep) {
+        logDebug("Arrêt : statut dossier et frise inexploitable");
+        return null;
+      }
+      // ANEF's route data remains authoritative for the step position even
+      // if its detailed status uses an unsupported encryption format.
+      dossierStatusCode = "frise_active";
+      dossierStatus = "Étape affichée selon la frise ANEF";
+      logDebug("Repli : rendu depuis la frise ANEF", {
+        idActive: Number(friseData.id_active),
+        typeFrise: String(friseData.type_frise || ""),
+      });
+    } else {
+      dossierStatus = getContextualStatusDescription(
+        dossierStatusCode,
+        friseData
+      );
     }
-
-    const dossierStatus = getContextualStatusDescription(
-      dossierStatusCode,
-      friseData
-    );
 
     return {
       version: extensionVersion,
@@ -555,6 +693,11 @@
       recepisseCreated: null,
       decretId: null,
       decretDate: null,
+      depotConfirmed: null,
+      recoursSubmittedAt: null,
+      recoursNotifiedAt: null,
+      recoursDecisionNotifiedAt: null,
+      rapo: null,
       dossier: data.dossier,
       dossierDetails: null,
       notifications: [],
@@ -563,19 +706,23 @@
         frise: friseData,
         dossier: null,
         notifications: [],
+        rapo: null,
       },
     };
   }
 
   async function enrichApiInfos(apiInfos) {
     const idDossier = apiInfos.idDossier;
-    const [dossierRaw, notifRaw] = await Promise.all([
+    const [dossierRaw, notifRaw, rapoRaw] = await Promise.all([
       fetch(CONFIG.API_DOSSIER_ENDPOINT + idDossier)
         .then((res) => (res.ok ? res.json() : null))
         .catch(() => null),
       fetch(
         "https://administration-etrangers-en-france.interieur.gouv.fr/api/notifications"
       )
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null),
+      fetch(CONFIG.API_RAPO_ENDPOINT, { credentials: "include" })
         .then((res) => (res.ok ? res.json() : null))
         .catch(() => null),
     ]);
@@ -630,16 +777,17 @@
         ? notifRaw._items
         : [];
       apiInfos.raw.notifications = apiInfos.notifications;
-      const matches = apiInfos.notifications.filter(
-        (it) =>
-          String(it?.id_demande) === String(idDossier) &&
-          it?.type_notification === "NATIONALITE" &&
-          it?.motif_notification === "RECEPISSE_COMPLETUDE_ENVOYE"
-      );
-      if (matches.length) {
-        apiInfos.recepisseCreated = matches.sort(
-          (a, b) => new Date(b._created) - new Date(a._created)
-        )[0]?._created;
+      const markers = extractNotificationMarkers(apiInfos.notifications, idDossier);
+      apiInfos.depotConfirmed = markers.depotConfirmed;
+      apiInfos.recepisseCreated = markers.recepisseCreated;
+      apiInfos.recoursNotifiedAt = markers.recoursNotified;
+      apiInfos.recoursDecisionNotifiedAt = markers.recoursDecisionNotified;
+      if (!apiInfos.complementInstructionDate && markers.complementNotified) {
+        apiInfos.complementInstructionDate = markers.complementNotified;
+        apiInfos.complementRequestCount = Math.max(
+          apiInfos.complementRequestCount,
+          1
+        );
       }
 
       if (apiInfos.complementInstructionDate && !apiInfos.complementDepotDate) {
@@ -662,6 +810,16 @@
       }
     }
 
+    if (rapoRaw) {
+      apiInfos.rapo = rapoRaw?.data ?? rapoRaw;
+      apiInfos.raw.rapo = apiInfos.rapo;
+      apiInfos.recoursSubmittedAt = pickFirstRawDate(
+        apiInfos.rapo?.date_time_depot,
+        apiInfos.rapo?.date_depot,
+        null
+      );
+    }
+
     return apiInfos;
   }
 
@@ -669,22 +827,26 @@
     window.__ANF_API_INFOS__ = apiInfos;
 
     console.group(
-      `Extension API Naturalisation v${apiInfos.version} — Infos API`
+      `Extension API Naturalisation v${apiInfos.version} - Infos API`
     );
     console.log("Statut code:", apiInfos.statutCode);
     console.log("Statut description:", apiInfos.statutDescription);
     console.log("Date statut:", apiInfos.dateStatut);
     console.log("ID dossier:", apiInfos.idDossier);
-    console.log("Date demande:", apiInfos.demandeDate || "—");
-    console.log("Complément instruction:", apiInfos.complementInstructionDate || "—");
+    console.log("Date demande:", apiInfos.demandeDate || "-");
+    console.log("Complément instruction:", apiInfos.complementInstructionDate || "-");
     console.log("Demandes de complément:", apiInfos.complementRequestCount || 0);
-    console.log("Entretien assimilation:", apiInfos.assimilationDate || "—");
+    console.log("Confirmation de dépôt:", apiInfos.depotConfirmed || "-");
+    console.log("Entretien assimilation:", apiInfos.assimilationDate || "-");
     if (apiInfos.assimilationPlateforme) {
       console.log("Plateforme assimilation:", apiInfos.assimilationPlateforme);
     }
-    console.log("Récépissé complétude:", apiInfos.recepisseCreated || "—");
-    console.log("N° décret:", apiInfos.decretId || "—");
-    console.log("Étape active de la frise:", apiInfos.raw.frise?.id_active || "—");
+    console.log("Récépissé complétude:", apiInfos.recepisseCreated || "-");
+    console.log("Dépôt RAPO:", apiInfos.recoursSubmittedAt || "-");
+    console.log("Notification RAPO:", apiInfos.recoursNotifiedAt || "-");
+    console.log("Décision RAPO notifiée:", apiInfos.recoursDecisionNotifiedAt || "-");
+    console.log("N° décret:", apiInfos.decretId || "-");
+    console.log("Étape active de la frise:", apiInfos.raw.frise?.id_active || "-");
     console.log("Résumé:", {
       statutCode: apiInfos.statutCode,
       statutDescription: apiInfos.statutDescription,
@@ -898,7 +1060,7 @@ const STATUTS = {
     // ── Étape 9 : Contrôle SDANF 
     "controle_a_affecter": {
       phase: "Contrôle SDANF",
-      explication: "Arrivé à la SDANF, attente affectation",
+      explication: "SDANF - Contrôle à affecter (CAA)",
       etape: 9,
       rang: 901,
       description: "Votre dossier est arrivé à la Sous-Direction de l'Accès à la Nationalité Française (SDANF) à Rezé (44). Il attend d'être attribué à un agent pour le contrôle ministériel.",
@@ -906,7 +1068,7 @@ const STATUTS = {
     },
     "controle_a_effectuer": {
       phase: "Contrôle SDANF",
-      explication: "Contrôle ministériel en cours",
+      explication: "SDANF - Contrôle à effectuer (CAE)",
       etape: 9,
       rang: 902,
       description: "Un agent de la SDANF contrôle votre dossier : vérification des pièces d'état civil, cohérence des informations, respect des conditions légales. Cette étape peut prendre plusieurs semaines.",
@@ -915,7 +1077,7 @@ const STATUTS = {
     // ── Étape 10 : Contrôle SCEC 
     "controle_en_attente_pec": {
       phase: "Contrôle SCEC",
-      explication: "Transmis au SCEC de Nantes",
+      explication: "SCEC - En attente prise en charge",
       etape: 10,
       rang: 1001,
       description: "Votre dossier est passé au Service central d'état civil (SCEC). L'étape suivante peut intervenir rapidement ou nécessiter une vérification complémentaire.",
@@ -941,7 +1103,7 @@ const STATUTS = {
     },
     "controle_en_attente_retour_hierarchique": {
       phase: "Préparation décret",
-      explication: "Validation hiérarchique",
+      explication: "SDANF - En attente retour hiérarchique",
       etape: 11,
       rang: 1102,
       description: "Un retour hiérarchique est attendu. La frise ANEF permet de distinguer un contrôle SDANF d'une étape SDANF2.",
@@ -1189,7 +1351,7 @@ const STATUTS = {
   function buildTrackingSteps() {
     const prefecture = [
       { key: "demande_envoyee", group: "prefecture", etape: 1, sub: "1", title: "Demande envoyée" },
-      { key: "dossier_depose", code: "dossier_depose", group: "prefecture", etape: 2, sub: "2", title: "Dépôt / enregistrement du dossier", locked: true },
+      { key: "dossier_depose", code: "dossier_depose", group: "prefecture", etape: 2, sub: "2", title: "Confirmation de dépôt", locked: true },
       { key: "examen_pieces", code: "verification_formelle_a_traiter", group: "prefecture", etape: 3, sub: "3", title: "Examen des pièces" },
       { key: "demande_deposee", group: "prefecture", etape: 4, title: "Demande déposée" },
       { key: "traitement_instruction", group: "prefecture", etape: 4, title: "Traitement en cours" },
@@ -1199,19 +1361,19 @@ const STATUTS = {
       { key: "decision_prefecture", code: "prop_decision_pref_a_effectuer", group: "prefecture", etape: 8, sub: "8", title: "Décision préfecture" },
     ];
     const ministry = [
-      { key: "traitement_sdanf_1", code: "controle_a_affecter", group: "sdanf", milestone: true, title: "SDANF - Contrôle initial du dossier" },
-      { key: "controle_a_effectuer", code: "controle_a_effectuer", group: "sdanf", title: "SDANF — Contrôle en cours" },
-      { key: "controle_hierarchique_sdanf_1", group: "sdanf", title: "SDANF — Validation du contrôle" },
-      { key: "traitement_scec", code: "controle_en_attente_pec", group: "scec", milestone: true, title: "SCEC - Vérification de l'état civil" },
-      { key: "controle_pec_a_faire", code: "controle_pec_a_faire", group: "scec", title: "SCEC — Vérification en cours" },
+      { key: "traitement_sdanf_1", code: "controle_a_affecter", group: "sdanf", milestone: true, title: "SDANF - Contrôle à affecter (CAA)" },
+      { key: "controle_a_effectuer", code: "controle_a_effectuer", group: "sdanf", title: "SDANF - Contrôle à effectuer (CAE)" },
+      { key: "controle_hierarchique_sdanf_1", group: "sdanf", title: "SDANF - En attente retour hiérarchique" },
+      { key: "traitement_scec", code: "controle_en_attente_pec", group: "scec", milestone: true, title: "SCEC - En attente prise en charge" },
+      { key: "controle_pec_a_faire", code: "controle_pec_a_faire", group: "scec", title: "SCEC - Vérification en cours" },
       { key: "traitement_sdanf_2", group: "sdanf", milestone: true, title: "SDANF - Validation finale et préparation du décret" },
       { key: "decision_prise", code: "controle_transmise_pour_decret", group: "decret", milestone: true, title: "Transmis pour décret" },
-      { key: "controle_en_attente_retour_hierarchique", code: "controle_en_attente_retour_hierarchique", group: "decret", title: "SDANF2 — Validation hiérarchique" },
+      { key: "controle_en_attente_retour_hierarchique", code: "controle_en_attente_retour_hierarchique", group: "decret", title: "SDANF - En attente retour hiérarchique" },
       { key: "controle_decision_a_editer", code: "controle_decision_a_editer", group: "decret", title: "Décision favorable, édition en cours" },
       { key: "controle_en_attente_signature", code: "controle_en_attente_signature", group: "decret", title: "Attente signature ministérielle" },
       { key: "transmis_a_ac", code: "transmis_a_ac", group: "decret", title: "Transmis à l'administration centrale" },
       { key: "a_verifier_avant_insertion_decret", code: "a_verifier_avant_insertion_decret", group: "decret", title: "Vérifications finales avant insertion" },
-      { key: "prete_pour_insertion_decret", code: "prete_pour_insertion_decret", group: "decret", title: "PPID — Prêt pour insertion décret" },
+      { key: "prete_pour_insertion_decret", code: "prete_pour_insertion_decret", group: "decret", title: "PPID - Prêt pour insertion décret" },
       { key: "decret_en_preparation", code: "decret_en_preparation", group: "decret", title: "Décret en cours de préparation" },
       { key: "decret_a_qualifier", code: "decret_a_qualifier", group: "decret", title: "Décret en cours de qualification" },
       { key: "decret_en_validation", code: "decret_en_validation", group: "decret", title: "Décret en validation finale" },
@@ -1524,6 +1686,10 @@ const STATUTS = {
   function shouldShowStepInStepper(step, index, currentIndex, phase, apiInfos) {
     const statusCode = apiInfos?.statutCode;
     const typeFrise = getFriseType(apiInfos);
+    // CAE is a useful, explicit SDANF sub-status. Keep it visible by default
+    // so its normal step state communicates whether it is pending, current,
+    // or completed.
+    const shouldShowCae = step.key === "controle_a_effectuer";
     if (step.key === "traitement_instruction" && index < currentIndex) {
       const depositIndex = getStepIndexByKey("demande_deposee");
       const depositDate = getStepKnownDate(
@@ -1548,6 +1714,17 @@ const STATUTS = {
     ].includes(typeFrise);
     if (isOfficialRoute) {
       const routeStepKeys = new Set(Object.values(getFriseStepKeys(apiInfos)));
+      if (shouldShowCae) return true;
+      // Once the dossier has reached a ministry stage, keep the completed
+      // prefecture decision as the final factual hand-off in that phase.
+      if (step.key === "decision_prefecture" && index < currentIndex) {
+        return true;
+      }
+      // The deposit confirmation is an ANEF notification, not a guessed
+      // internal status. Keep this dated marker before the examination step.
+      if (step.key === "dossier_depose" && apiInfos?.depotConfirmed) {
+        return true;
+      }
       // The detailed API status can be more precise than id_active (for
       // example PPID while the official frise remains on SDANF2). Keep that
       // current point, but do not invent the other missing route steps.
@@ -1563,7 +1740,12 @@ const STATUTS = {
       return false;
     }
     if (step.platform && index < currentIndex) return false;
-    if (phase.key === "ministere" && !step.milestone && index !== currentIndex) {
+    if (
+      phase.key === "ministere" &&
+      !step.milestone &&
+      index !== currentIndex &&
+      !shouldShowCae
+    ) {
       return false;
     }
     return true;
@@ -2667,6 +2849,11 @@ const STATUTS = {
       assimilationPlateforme,
       recepisseCreated,
       decretId,
+      depotConfirmed,
+      recoursSubmittedAt,
+      recoursNotifiedAt,
+      recoursDecisionNotifiedAt,
+      rapo,
     } = apiInfos;
     const isCurrent = index === currentIndex;
     const details = [];
@@ -2692,15 +2879,20 @@ const STATUTS = {
     }
     if (stepKey === "examen_pieces" && complementInstructionDate) {
       const complementLabel = complementRequestCount > 1
-        ? `${complementRequestCount} demandes de complément - `
+        ? `${complementRequestCount} demandes de complément `
         : "Complément demandé le";
       details.push({
         text: `${complementLabel} ${formatDate(complementInstructionDate)}`,
         variant: "date",
       });
     }
-    if (stepKey === "demande_deposee" || stepKey === "dossier_depose") {
-      if (anchorRawDate) {
+    if (stepKey === "dossier_depose" || stepKey === "demande_deposee") {
+      if (stepKey === "dossier_depose" && depotConfirmed) {
+        details.push({
+          text: ` ${formatDate(depotConfirmed)}`,
+          variant: "date",
+        });
+      } else if (anchorRawDate) {
         details.push({ text: formatDate(anchorRawDate), variant: "date" });
       }
     }
@@ -2719,6 +2911,29 @@ const STATUTS = {
           masked: true,
         });
       }
+    }
+    if (stepKey === "recours_envoye" && recoursSubmittedAt) {
+      details.push({
+        text: `Recours déposé le ${formatDate(recoursSubmittedAt)}`,
+        variant: "date",
+      });
+    } else if (stepKey === "recours_envoye" && recoursNotifiedAt) {
+      details.push({
+        text: `Notification liée au RAPO le ${formatDate(recoursNotifiedAt)}`,
+        variant: "date",
+      });
+    }
+    if (stepKey === "recours_statut_courant" && rapo?.is_rejet_implicite) {
+      details.push({
+        text: "Rejet implicite signalé par ANEF",
+        variant: "status-card",
+      });
+    }
+    if (stepKey === "recours_decision_prise" && recoursDecisionNotifiedAt) {
+      details.push({
+        text: `Notification de décision le ${formatDate(recoursDecisionNotifiedAt)}`,
+        variant: "date",
+      });
     }
     if (isCurrent && dateStatut) {
       const statusDateLabel = formatDate(dateStatut);
@@ -2824,7 +3039,7 @@ const STATUTS = {
   function renderRecreatedStepper(apiInfos) {
     const header = document.querySelector("anef-header");
     if (!header) {
-      console.log("Warning: Extension API Naturalisation — anef-header introuvable");
+      console.log("Warning: Extension API Naturalisation - anef-header introuvable");
       return false;
     }
 
@@ -3015,7 +3230,7 @@ const STATUTS = {
       }
     } catch (error) {
       console.log(
-        "Warning: Extension API Naturalisation — toggle série ignoré:",
+        "Warning: Extension API Naturalisation - toggle série ignoré:",
         error
       );
     }
@@ -3064,7 +3279,7 @@ const STATUTS = {
       }
     } catch (error) {
       console.log(
-        "Warning: Extension API Naturalisation — toggle timbre ignoré:",
+        "Warning: Extension API Naturalisation - toggle timbre ignoré:",
         error
       );
     }
@@ -3106,12 +3321,18 @@ const STATUTS = {
     bootstrapRunning = true;
 
     try {
+      logDebug("Démarrage", { path: window.location.hash || "#/" });
       const hasHeader = await waitForAnefHeader();
-      if (!hasHeader) return;
+      if (!hasHeader) {
+        logDebug("Arrêt : en-tête ANEF introuvable");
+        return;
+      }
 
       const authState = await waitForAuthResolved();
+      logDebug("État d'authentification", { authState });
 
       if (authState !== "logged-in") {
+        logDebug("Arrêt : connexion ANEF requise");
         removeStepperIfPresent();
         if (authState === "logged-out") {
           watchForLogin();
@@ -3128,14 +3349,17 @@ const STATUTS = {
       const apiInfos = await fetchApiInfos();
 
       if (!hasNaturalisationData(apiInfos)) {
+        logDebug("Arrêt : stepper non rendu, données insuffisantes");
         removeStepperIfPresent();
         return;
       }
 
+      logDebug("Rendu initial", { statusCode: apiInfos.statutCode });
       showStepperIfReady(apiInfos, true);
 
       enrichApiInfos(apiInfos)
         .then((enriched) => {
+          logDebug("Rendu enrichi", { statusCode: enriched.statutCode });
           logApiInfos(enriched);
           showStepperIfReady(enriched, true);
           addSeriesVisibilityToggle();
@@ -3143,14 +3367,14 @@ const STATUTS = {
         })
         .catch((error) => {
           console.log(
-            "Warning: Extension API Naturalisation — enrichissement partiel:",
+            "Warning: Extension API Naturalisation - enrichissement partiel:",
             error
           );
           logApiInfos(apiInfos);
         });
     } catch (error) {
       console.log(
-        "Error: Extension API Naturalisation — erreur inattendue:",
+        "Error: Extension API Naturalisation - erreur inattendue:",
         error
       );
       removeStepperIfPresent();
