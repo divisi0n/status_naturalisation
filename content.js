@@ -127,8 +127,21 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.7.4";
+  const extensionVersion = "3.7.5";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
+
+  function formatAnefStatusFlags(status) {
+    const value =
+      typeof status === "object" && status !== null
+        ? status.type ?? status.code ?? status.value ?? ""
+        : status;
+    const firstFlag = String(value || "").trim().split("|")[0];
+    if (!String(value || "").includes("|") || !/^[A-Z0-9][A-Z0-9_-]*$/.test(firstFlag)) {
+      return null;
+    }
+    const label = firstFlag.toLowerCase().replace(/[_-]+/g, " ").trim();
+    return label ? label.charAt(0).toUpperCase() + label.slice(1) : null;
+  }
 
   // Fonction de décryptage dédiée à Kamal : Round 2
   function IamKamal_23071993_v2(encryptedData) {
@@ -650,6 +663,7 @@
       statusLength: String(data.dossier.statut || "").length,
       hasFrise: Boolean(friseData),
     });
+    const plainStatusLabel = formatAnefStatusFlags(data.dossier.statut);
     let dossierStatusCode = IamKamal_23071993_v2(data.dossier.statut);
     const hasActiveFriseStep = Number.isFinite(Number(friseData?.id_active));
     let dossierStatus;
@@ -665,10 +679,11 @@
       // ANEF's route data remains authoritative for the step position even
       // if its detailed status uses an unsupported encryption format.
       dossierStatusCode = "frise_active";
-      dossierStatus = "Étape affichée selon la frise ANEF";
+      dossierStatus = plainStatusLabel || "Étape affichée selon la frise ANEF";
       logDebug("Repli : rendu depuis la frise ANEF", {
         idActive: Number(friseData.id_active),
         typeFrise: String(friseData.type_frise || ""),
+        plainStatusLabel,
       });
     } else {
       dossierStatus = getContextualStatusDescription(
