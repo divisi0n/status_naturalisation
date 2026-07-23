@@ -127,7 +127,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.7.6";
+  const extensionVersion = "3.7.7";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   function formatAnefStatusFlags(status) {
@@ -1555,6 +1555,30 @@ const STATUTS = {
     return index >= 0 ? index : null;
   }
 
+  function getLatestDatedRouteStepIndex(apiInfos, currentIndex) {
+    // With no detailed ANEF status, id_active can lag behind a dated event
+    // such as the receipt of completeness. Never display that known event as
+    // pending after an older frise point.
+    if (normalizeStatusCode(apiInfos?.statutCode) !== "frise_active") {
+      return currentIndex;
+    }
+    const statusDate = parseAnchorDate(apiInfos?.dateStatut);
+    if (!statusDate) return currentIndex;
+
+    const routeStepKeys = new Set(Object.values(getFriseStepKeys(apiInfos)));
+    return TRACKING_STEPS.reduce((latestIndex, step, index) => {
+      if (!routeStepKeys.has(step.key) || index <= latestIndex) {
+        return latestIndex;
+      }
+      // Passing -1 prevents the generic date_statut from being treated as a
+      // dated event for every otherwise-undated step.
+      const knownDate = parseAnchorDate(
+        getStepAnchorRawDate(step.key, index, -1, apiInfos)
+      );
+      return knownDate && knownDate <= statusDate ? index : latestIndex;
+    }, currentIndex);
+  }
+
   function getNextMilestoneIndex(steps, milestoneIndex) {
     for (let i = milestoneIndex + 1; i < steps.length; i++) {
       if (steps[i].milestone) return i;
@@ -1896,9 +1920,16 @@ const STATUTS = {
       let lineInDurationIsStatus = false;
       let lineInDurationAtPhaseStart = false;
       if (prev) {
-        if (index === currentIndex && apiInfos.dateStatut) {
+        const explicitStepDate = getStepAnchorRawDate(
+          step.key,
+          index,
+          -1,
+          apiInfos
+        );
+        const currentDate = explicitStepDate || apiInfos.dateStatut;
+        if (index === currentIndex && currentDate) {
           lineInDuration = formatDurationBetween(
-            parseAnchorDate(apiInfos.dateStatut),
+            parseAnchorDate(currentDate),
             new Date()
           );
           lineInDurationIsStatus = Boolean(lineInDuration);
@@ -1928,13 +1959,15 @@ const STATUTS = {
       } else if (
         phase.key !== "prefecture" &&
         index === currentIndex &&
-        apiInfos.dateStatut
+        (getStepAnchorRawDate(step.key, index, -1, apiInfos) || apiInfos.dateStatut)
       ) {
         // À l'entrée du deuxième parcours (ministère ou recours), il n'y a
         // pas de liaison précédente où poser le temps d'attente. On l'affiche
         // donc sur la première étape ; après cette étape, il reste au milieu.
         lineInDuration = formatDurationBetween(
-          parseAnchorDate(apiInfos.dateStatut),
+          parseAnchorDate(
+            getStepAnchorRawDate(step.key, index, -1, apiInfos) || apiInfos.dateStatut
+          ),
           new Date()
         );
         lineInDurationIsStatus = Boolean(lineInDuration);
@@ -2950,7 +2983,13 @@ const STATUTS = {
         variant: "date",
       });
     }
-    if (isCurrent && dateStatut) {
+    const explicitStepDate = getStepAnchorRawDate(
+      stepKey,
+      index,
+      -1,
+      apiInfos
+    );
+    if (isCurrent && dateStatut && !explicitStepDate) {
       const statusDateLabel = formatDate(dateStatut);
       const alreadyShown = details.some(
         (detail) =>
@@ -3077,7 +3116,7 @@ const STATUTS = {
     const statusIndex = inferTrackingIndex(apiInfos);
     const friseIndex = inferFriseTrackingIndex(apiInfos);
     const inferredIndex = statusIndex ?? friseIndex ?? 0;
-    let currentIndex = inferredIndex;
+    let currentIndex = getLatestDatedRouteStepIndex(apiInfos, inferredIndex);
     const ceremonyStepIndex = getCeremonyStepIndex();
     if (
       shouldHideCeremonyStep(apiInfos.statutCode) &&
