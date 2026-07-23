@@ -127,7 +127,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.7.5";
+  const extensionVersion = "3.7.6";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   function formatAnefStatusFlags(status) {
@@ -135,8 +135,11 @@
       typeof status === "object" && status !== null
         ? status.type ?? status.code ?? status.value ?? ""
         : status;
-    const firstFlag = String(value || "").trim().split("|")[0];
-    if (!String(value || "").includes("|") || !/^[A-Z0-9][A-Z0-9_-]*$/.test(firstFlag)) {
+    const rawValue = String(value || "").trim();
+    const firstFlag = rawValue.split("|")[0];
+    if (
+      !/^[A-Z0-9][A-Z0-9_-]*(\|[A-Z0-9][A-Z0-9_-]*)*$/.test(rawValue)
+    ) {
       return null;
     }
     const label = firstFlag.toLowerCase().replace(/[_-]+/g, " ").trim();
@@ -621,7 +624,7 @@
       return false;
     }
 
-    return Boolean(apiInfos.statutDescription);
+    return code === "frise_active" || Boolean(apiInfos.statutDescription);
   }
 
   function removeStepperIfPresent() {
@@ -679,7 +682,7 @@
       // ANEF's route data remains authoritative for the step position even
       // if its detailed status uses an unsupported encryption format.
       dossierStatusCode = "frise_active";
-      dossierStatus = plainStatusLabel || "Étape affichée selon la frise ANEF";
+      dossierStatus = plainStatusLabel || "";
       logDebug("Repli : rendu depuis la frise ANEF", {
         idActive: Number(friseData.id_active),
         typeFrise: String(friseData.type_frise || ""),
@@ -697,6 +700,7 @@
       idDossier,
       statutCode: dossierStatusCode,
       statutDescription: dossierStatus,
+      plainStatusLabel,
       dateStatut: data.dossier.date_statut,
       demandeDate: null,
       complementInstructionDate: null,
@@ -1075,7 +1079,7 @@ const STATUTS = {
     // ── Étape 9 : Contrôle SDANF 
     "controle_a_affecter": {
       phase: "Contrôle SDANF",
-      explication: "SDANF - Contrôle à affecter (CAA)",
+      explication: "SDANF - Contrôle à affecter/effectuer (CAA/CAE)",
       etape: 9,
       rang: 901,
       description: "Votre dossier est arrivé à la Sous-Direction de l'Accès à la Nationalité Française (SDANF) à Rezé (44). Il attend d'être attribué à un agent pour le contrôle ministériel.",
@@ -1083,7 +1087,7 @@ const STATUTS = {
     },
     "controle_a_effectuer": {
       phase: "Contrôle SDANF",
-      explication: "SDANF - Contrôle à effectuer (CAE)",
+      explication: "SDANF - Contrôle à affecter/effectuer (CAA/CAE)",
       etape: 9,
       rang: 902,
       description: "Un agent de la SDANF contrôle votre dossier : vérification des pièces d'état civil, cohérence des informations, respect des conditions légales. Cette étape peut prendre plusieurs semaines.",
@@ -1376,8 +1380,7 @@ const STATUTS = {
       { key: "decision_prefecture", code: "prop_decision_pref_a_effectuer", group: "prefecture", etape: 8, sub: "8", title: "Décision préfecture" },
     ];
     const ministry = [
-      { key: "traitement_sdanf_1", code: "controle_a_affecter", group: "sdanf", milestone: true, title: "SDANF - Contrôle à affecter (CAA)" },
-      { key: "controle_a_effectuer", code: "controle_a_effectuer", group: "sdanf", title: "SDANF - Contrôle à effectuer (CAE)" },
+      { key: "traitement_sdanf_1", code: "controle_a_affecter", codes: ["controle_a_affecter", "controle_a_effectuer"], group: "sdanf", milestone: true, title: "SDANF - Contrôle à affecter/effectuer (CAA/CAE)" },
       { key: "controle_hierarchique_sdanf_1", group: "sdanf", title: "SDANF - En attente retour hiérarchique" },
       { key: "traitement_scec", code: "controle_en_attente_pec", group: "scec", milestone: true, title: "SCEC - En attente prise en charge" },
       { key: "controle_pec_a_faire", code: "controle_pec_a_faire", group: "scec", title: "SCEC - Vérification en cours" },
@@ -1517,7 +1520,9 @@ const STATUTS = {
       decret_publie: "decret_naturalisation_publie",
     };
     const aliasedCode = STATUS_STEP_ALIASES[code] || code;
-    const exactIndex = TRACKING_STEPS.findIndex((step) => step.code === aliasedCode);
+    const exactIndex = TRACKING_STEPS.findIndex(
+      (step) => step.code === aliasedCode || step.codes?.includes(aliasedCode)
+    );
     if (exactIndex >= 0) return exactIndex;
 
     const info = STATUTS[code];
@@ -1701,10 +1706,6 @@ const STATUTS = {
   function shouldShowStepInStepper(step, index, currentIndex, phase, apiInfos) {
     const statusCode = apiInfos?.statutCode;
     const typeFrise = getFriseType(apiInfos);
-    // CAE is a useful, explicit SDANF sub-status. Keep it visible by default
-    // so its normal step state communicates whether it is pending, current,
-    // or completed.
-    const shouldShowCae = step.key === "controle_a_effectuer";
     if (step.key === "traitement_instruction" && index < currentIndex) {
       const depositIndex = getStepIndexByKey("demande_deposee");
       const depositDate = getStepKnownDate(
@@ -1729,7 +1730,6 @@ const STATUTS = {
     ].includes(typeFrise);
     if (isOfficialRoute) {
       const routeStepKeys = new Set(Object.values(getFriseStepKeys(apiInfos)));
-      if (shouldShowCae) return true;
       // Once the dossier has reached a ministry stage, keep the completed
       // prefecture decision as the final factual hand-off in that phase.
       if (step.key === "decision_prefecture" && index < currentIndex) {
@@ -1758,8 +1758,7 @@ const STATUTS = {
     if (
       phase.key === "ministere" &&
       !step.milestone &&
-      index !== currentIndex &&
-      !shouldShowCae
+      index !== currentIndex
     ) {
       return false;
     }
@@ -2864,6 +2863,7 @@ const STATUTS = {
       assimilationPlateforme,
       recepisseCreated,
       decretId,
+      plainStatusLabel,
       depotConfirmed,
       recoursSubmittedAt,
       recoursNotifiedAt,
@@ -2961,17 +2961,29 @@ const STATUTS = {
         details.unshift({ text: statusDateLabel, variant: "date" });
       }
     }
-    if (isCurrent && !["decret_naturalisation_publie", "ceremonie_naturalisation", "inseree_dans_decret"].includes(stepKey)) {
+    const isGenericProcessingStatus =
+      plainStatusLabel === "Demande en cours de traitement";
+    const shouldShowStatusCard =
+      Boolean(dossierStatus) && !isGenericProcessingStatus;
+    if (
+      isCurrent &&
+      shouldShowStatusCard &&
+      !["decret_naturalisation_publie", "ceremonie_naturalisation", "inseree_dans_decret"].includes(stepKey)
+    ) {
       details.push({ text: dossierStatus, variant: "status-card" });
     }
-    if (isCurrent && stepKey === "ceremonie_naturalisation") {
+    if (
+      isCurrent &&
+      shouldShowStatusCard &&
+      stepKey === "ceremonie_naturalisation"
+    ) {
       details.push({ text: dossierStatus, variant: "status-card" });
     }
     if (
       stepKey === "decret_naturalisation_publie" ||
       stepKey === "inseree_dans_decret"
     ) {
-      if (isCurrent) {
+      if (isCurrent && shouldShowStatusCard) {
         details.push({ text: dossierStatus, variant: "status-card" });
       }
       if (decretId) {
