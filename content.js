@@ -9,7 +9,7 @@
     // Current RAPO details. A failure is deliberately non-blocking for the
     // stepper, which continues to use the dossier status and notifications.
     API_RAPO_ENDPOINT:
-      "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/usager/dossiers/rapo",
+      "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/usager/rapo",
     API_DOSSIER_ENDPOINT:
       "https://administration-etrangers-en-france.interieur.gouv.fr/api/anf/usager/dossiers/",
     WAIT_TIME: 100,
@@ -22,7 +22,7 @@
   }
 
   function logDebug(event, details = {}) {
-    console.log(`[ANF debug] ${event}`, details);
+    // Debug logging intentionally disabled for release builds.
   }
 
   function prefersReducedMotion() {
@@ -127,7 +127,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.7.7";
+  const extensionVersion = "3.8.0";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   function formatAnefStatusFlags(status) {
@@ -585,6 +585,26 @@
     );
   }
 
+  function isReceiptChronologicallyValid(apiInfos) {
+    const receiptDate = parseAnchorDate(apiInfos?.recepisseCreated);
+    if (!receiptDate) return false;
+
+    const precedingDates = [
+      apiInfos?.depotConfirmed,
+      apiInfos?.dossierDepotDate,
+      apiInfos?.complementInstructionDate,
+      apiInfos?.complementDepotDate,
+    ]
+      .map(parseAnchorDate)
+      .filter(Boolean);
+    const latestPrecedingDate = precedingDates.reduce(
+      (latest, date) => (!latest || date > latest ? date : latest),
+      null
+    );
+
+    return !latestPrecedingDate || receiptDate >= latestPrecedingDate;
+  }
+
   function getDurationBetweenSteps(fromStep, fromIndex, toStep, toIndex, currentIndex, apiInfos) {
     const fromDate = getStepKnownDate(fromStep.key, fromIndex, currentIndex, apiInfos);
     const toDate = getStepKnownDate(toStep.key, toIndex, currentIndex, apiInfos);
@@ -826,6 +846,17 @@
         if (depotCandidates.length) {
           apiInfos.complementDepotDate = depotCandidates[0];
         }
+      }
+
+      if (apiInfos.recepisseCreated && !isReceiptChronologicallyValid(apiInfos)) {
+        logDebug("Récépissé ignoré : date antérieure à un jalon préfecture", {
+          recepisseCreated: apiInfos.recepisseCreated,
+          depotConfirmed: apiInfos.depotConfirmed,
+          dossierDepotDate: apiInfos.dossierDepotDate,
+          complementInstructionDate: apiInfos.complementInstructionDate,
+          complementDepotDate: apiInfos.complementDepotDate,
+        });
+        apiInfos.recepisseCreated = null;
       }
     }
 
@@ -1376,7 +1407,7 @@ const STATUTS = {
       { key: "traitement_instruction", group: "prefecture", etape: 4, title: "Traitement en cours" },
       { key: "recepisse_completude", code: "instruction_recepisse_completude_a_envoyer", group: "prefecture", etape: 5, sub: "5", title: "Récépissé de complétude" },
       { key: "entretien_assimilation", code: "ea_en_attente_ea", group: "prefecture", etape: 7, sub: "7", title: "Entretien d'assimilation", locked: true },
-      { key: "traitement_plateforme_3", group: "prefecture", etape: 8, title: "Traitement en cours (Plateforme)", platform: true },
+      { key: "traitement_plateforme_3", group: "prefecture", etape: 8, title: "Rapport et validation hiérarchique", platform: true },
       { key: "decision_prefecture", code: "prop_decision_pref_a_effectuer", group: "prefecture", etape: 8, sub: "8", title: "Décision préfecture" },
     ];
     const ministry = [
@@ -1754,9 +1785,14 @@ const STATUTS = {
     ].includes(typeFrise);
     if (isOfficialRoute) {
       const routeStepKeys = new Set(Object.values(getFriseStepKeys(apiInfos)));
-      // Once the dossier has reached a ministry stage, keep the completed
-      // prefecture decision as the final factual hand-off in that phase.
-      if (step.key === "decision_prefecture" && index < currentIndex) {
+      // COMPLET routes omit the prefecture decision. Keep it visible as the
+      // next final step after the report/hierarchical-validation point, and
+      // as the factual hand-off once the whole prefecture block is complete.
+      if (
+        step.key === "decision_prefecture" &&
+        phase.key === "prefecture" &&
+        (currentIndex > phase.endIndex || currentIndex === index - 1)
+      ) {
         return true;
       }
       // The deposit confirmation is an ANEF notification, not a guessed
