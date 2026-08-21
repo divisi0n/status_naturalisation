@@ -127,7 +127,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.8.0";
+  const extensionVersion = "3.8.2";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   function formatAnefStatusFlags(status) {
@@ -146,7 +146,9 @@
     return label ? label.charAt(0).toUpperCase() + label.slice(1) : null;
   }
 
-  // Fonction de décryptage dédiée à Kamal : Round 2
+  /*
+  // Legacy RSA status decryption, retained for reference but disabled because
+  // the current ANEF API no longer exposes an encrypted detailed status.
   function IamKamal_23071993_v2(encryptedData) {
     const statusValue =
       typeof encryptedData === "object" && encryptedData !== null
@@ -216,6 +218,7 @@
       return null;
     }
   }
+  */
 
   if (!window.location.href.includes(CONFIG.URL_PATTERN)) return;
 
@@ -503,6 +506,7 @@
     } = apiInfos;
     const complementDate = parseAnchorDate(complementInstructionDate);
 
+    let resolvedDate;
     if (complementDate) {
       const candidates = [complementDepotDate, dossierDepotDate];
       const demandeParsed = parseAnchorDate(demandeDate);
@@ -512,14 +516,19 @@
       if (index === currentIndex) {
         candidates.push(dateStatut);
       }
-      return pickLatestRawDate(...candidates);
+      resolvedDate = pickLatestRawDate(...candidates);
+    } else {
+      resolvedDate = pickFirstRawDate(
+        dossierDepotDate,
+        demandeDate,
+        index === currentIndex ? dateStatut : null
+      );
     }
 
-    return pickFirstRawDate(
-      dossierDepotDate,
-      demandeDate,
-      index === currentIndex ? dateStatut : null
-    );
+    // ANEF can attach an earlier administrative date to this event than the
+    // later confirmation notification. Keep both facts: the visual rail is
+    // ordered chronologically instead of discarding the dated event.
+    return resolvedDate;
   }
 
   function getStepAnchorRawDate(stepKey, index, currentIndex, apiInfos) {
@@ -542,7 +551,7 @@
       case "examen_pieces":
         return (
           complementInstructionDate ||
-          (index <= currentIndex ? dateStatut : null)
+          (index === currentIndex ? dateStatut : null)
         );
       case "demande_deposee":
         return resolveDemandeDeposeeRawDate(apiInfos, index, currentIndex);
@@ -687,7 +696,9 @@
       hasFrise: Boolean(friseData),
     });
     const plainStatusLabel = formatAnefStatusFlags(data.dossier.statut);
-    let dossierStatusCode = IamKamal_23071993_v2(data.dossier.statut);
+    // Detailed-status decryption is disabled; the current position comes
+    // from the ANEF frise (`id_active`, `type_frise`, `has_step_scec`).
+    let dossierStatusCode = null;
     const hasActiveFriseStep = Number.isFinite(Number(friseData?.id_active));
     let dossierStatus;
     if (
@@ -1758,6 +1769,43 @@ const STATUTS = {
     return "pending";
   }
 
+  function sortReachedStepsChronologically(visibleSteps, currentIndex, apiInfos) {
+    const reached = [];
+    const upcoming = [];
+
+    visibleSteps.forEach((entry) => {
+      if (entry.index <= currentIndex) {
+        reached.push({
+          ...entry,
+          chronologyDate: getStepKnownDate(
+            entry.step.key,
+            entry.index,
+            currentIndex,
+            apiInfos
+          ),
+        });
+      } else {
+        upcoming.push(entry);
+      }
+    });
+
+    // Known timestamps come first and are strictly chronological. Untimed
+    // reached steps retain their official order after the dated history.
+    reached.sort((left, right) => {
+      if (left.chronologyDate && right.chronologyDate) {
+        const difference = left.chronologyDate - right.chronologyDate;
+        if (difference) return difference;
+      } else if (left.chronologyDate) {
+        return -1;
+      } else if (right.chronologyDate) {
+        return 1;
+      }
+      return left.index - right.index;
+    });
+
+    return [...reached, ...upcoming];
+  }
+
   function shouldShowStepInStepper(step, index, currentIndex, phase, apiInfos) {
     const statusCode = apiInfos?.statutCode;
     const typeFrise = getFriseType(apiInfos);
@@ -1834,6 +1882,7 @@ const STATUTS = {
       lineInDuration = null,
       lineInDurationIsStatus = false,
       lineInDurationAtPhaseStart = false,
+      activeDuration = null,
     } = railMeta;
     const state = getStepState(step, index, currentIndex);
     const item = document.createElement("div");
@@ -1891,7 +1940,14 @@ const STATUTS = {
 
     item.appendChild(track);
     item.appendChild(copy);
-    appendStepDetails(copy, step.key, index, currentIndex, apiInfos);
+    appendStepDetails(
+      copy,
+      step.key,
+      index,
+      currentIndex,
+      apiInfos,
+      activeDuration
+    );
 
     return item;
   }
@@ -1936,7 +1992,7 @@ const STATUTS = {
       phase.startIndex,
       phase.endIndex + 1
     );
-    const visibleSteps = phaseSteps
+    let visibleSteps = phaseSteps
       .map((step, offset) => ({ step, index: phase.startIndex + offset }))
       .filter(({ step, index }) =>
         shouldShowStepInStepper(
@@ -1948,6 +2004,14 @@ const STATUTS = {
         )
       );
 
+    if (phase.key === "prefecture") {
+      visibleSteps = sortReachedStepsChronologically(
+        visibleSteps,
+        currentIndex,
+        apiInfos
+      );
+    }
+
     visibleSteps.forEach(({ step, index }, visibleOffset) => {
       const isFirst = visibleOffset === 0;
       const isLast = visibleOffset === visibleSteps.length - 1;
@@ -1955,6 +2019,13 @@ const STATUTS = {
       let lineInDuration = null;
       let lineInDurationIsStatus = false;
       let lineInDurationAtPhaseStart = false;
+      const activeDuration =
+        index === currentIndex
+          ? formatDurationBetween(
+              getStepKnownDate(step.key, index, currentIndex, apiInfos),
+              new Date()
+            )
+          : null;
       if (prev) {
         const explicitStepDate = getStepAnchorRawDate(
           step.key,
@@ -1962,10 +2033,20 @@ const STATUTS = {
           -1,
           apiInfos
         );
-        const currentDate = explicitStepDate || apiInfos.dateStatut;
-        if (index === currentIndex && currentDate) {
+        const previousDate = getStepKnownDate(
+          prev.step.key,
+          prev.index,
+          currentIndex,
+          apiInfos
+        );
+        const currentDate = parseAnchorDate(explicitStepDate);
+        if (index === currentIndex && (currentDate || previousDate || apiInfos.dateStatut)) {
+          // For an active ANEF point with no timestamp of its own, the known
+          // date of N-1 is the best available start of the current wait.
+          const currentStepStartedAt =
+            currentDate || previousDate || parseAnchorDate(apiInfos.dateStatut);
           lineInDuration = formatDurationBetween(
-            parseAnchorDate(currentDate),
+            currentStepStartedAt,
             new Date()
           );
           lineInDurationIsStatus = Boolean(lineInDuration);
@@ -2019,6 +2100,7 @@ const STATUTS = {
           lineInDuration,
           lineInDurationIsStatus,
           lineInDurationAtPhaseStart,
+          activeDuration,
         })
       );
     });
@@ -2921,7 +3003,14 @@ const STATUTS = {
     return el;
   }
 
-  function appendStepDetails(item, stepKey, index, currentIndex, apiInfos) {
+  function appendStepDetails(
+    item,
+    stepKey,
+    index,
+    currentIndex,
+    apiInfos,
+    activeDuration = null
+  ) {
     const {
       statutDescription: dossierStatus,
       dateStatut,
@@ -3018,6 +3107,9 @@ const STATUTS = {
         text: `Notification de décision le ${formatDate(recoursDecisionNotifiedAt)}`,
         variant: "date",
       });
+    }
+    if (isCurrent && stepKey !== "demande_envoyee" && activeDuration) {
+      details.push({ text: activeDuration, variant: "total-duration" });
     }
     const explicitStepDate = getStepAnchorRawDate(
       stepKey,
