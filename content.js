@@ -127,7 +127,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.8.2";
+  const extensionVersion = "3.8.3";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   function formatAnefStatusFlags(status) {
@@ -1770,12 +1770,13 @@ const STATUTS = {
   }
 
   function sortReachedStepsChronologically(visibleSteps, currentIndex, apiInfos) {
-    const reached = [];
+    const completed = [];
+    const current = [];
     const upcoming = [];
 
     visibleSteps.forEach((entry) => {
-      if (entry.index <= currentIndex) {
-        reached.push({
+      if (entry.index < currentIndex) {
+        completed.push({
           ...entry,
           chronologyDate: getStepKnownDate(
             entry.step.key,
@@ -1784,14 +1785,19 @@ const STATUTS = {
             apiInfos
           ),
         });
+      } else if (entry.index === currentIndex) {
+        current.push(entry);
       } else {
         upcoming.push(entry);
       }
     });
 
     // Known timestamps come first and are strictly chronological. Untimed
-    // reached steps retain their official order after the dated history.
-    reached.sort((left, right) => {
+    // completed steps retain their official order after the dated history.
+    // The active step must remain after every completed step even when it is
+    // the only point with a timestamp; otherwise the rail visually places
+    // completed stages after the current one.
+    completed.sort((left, right) => {
       if (left.chronologyDate && right.chronologyDate) {
         const difference = left.chronologyDate - right.chronologyDate;
         if (difference) return difference;
@@ -1803,7 +1809,7 @@ const STATUTS = {
       return left.index - right.index;
     });
 
-    return [...reached, ...upcoming];
+    return [...completed, ...current, ...upcoming];
   }
 
   function shouldShowStepInStepper(step, index, currentIndex, phase, apiInfos) {
