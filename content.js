@@ -73,7 +73,7 @@
       if (state !== "unknown") return state;
       await sleep(300);
     }
-
+ 
     return getAuthState();
   }
 
