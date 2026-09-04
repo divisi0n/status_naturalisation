@@ -127,7 +127,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.8.3";
+  const extensionVersion = "3.8.4";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   function formatAnefStatusFlags(status) {
@@ -145,6 +145,7 @@
     const label = firstFlag.toLowerCase().replace(/[_-]+/g, " ").trim();
     return label ? label.charAt(0).toUpperCase() + label.slice(1) : null;
   }
+
 
   /*
   // Legacy RSA status decryption, retained for reference but disabled because
@@ -293,7 +294,13 @@
 
   function getFriseStepKeys(source) {
     const type = getFriseType(source);
-    if (type === "DECISION_RAPO") return {};
+    if (type === "DECISION_RAPO") {
+      return {
+        0: "recours_envoye",
+        1: "recours_statut_courant",
+        2: "recours_decision_prise",
+      };
+    }
     if (type === "DECISION_PLATEFORME_AVANT_VF") {
       return { 0: "demande_envoyee", 1: "demande_envoyee", 2: "examen_pieces", 3: "traitement_instruction", 4: "decision_prefecture" };
     }
@@ -406,6 +413,14 @@
       }
     }
     return latest;
+  }
+
+  // The current ANEF bundle returns the RAPO status in clear in
+  // currentRapo.statut.type. Do not reintroduce the legacy RSA key path.
+  function getRapoStatusType(rapo) {
+    const value = rapo?.statut?.type ?? rapo?.status?.type;
+    const raw = String(value || "").trim().toUpperCase();
+    return /^[A-Z][A-Z0-9_]*$/.test(raw) ? raw : null;
   }
 
   function extractComplementDates(demandeComplements) {
@@ -544,6 +559,11 @@
       recoursNotifiedAt,
       recoursDecisionNotifiedAt,
     } = apiInfos;
+    const isRapoRoute = Boolean(
+      apiInfos?.hasCurrentRapo ||
+        apiInfos?.rapoStatusType ||
+        getFriseType(apiInfos) === "DECISION_RAPO"
+    );
 
     switch (stepKey) {
       case "demande_envoyee":
@@ -571,16 +591,19 @@
         return (
           recoursSubmittedAt ||
           recoursNotifiedAt ||
-          (index === currentIndex ? dateStatut : null)
+          (!isRapoRoute && index === currentIndex ? dateStatut : null)
         );
       case "recours_statut_courant":
         return (
           recoursSubmittedAt ||
           recoursNotifiedAt ||
-          (index === currentIndex ? dateStatut : null)
+          (!isRapoRoute && index === currentIndex ? dateStatut : null)
         );
       case "recours_decision_prise":
-        return recoursDecisionNotifiedAt || (index === currentIndex ? dateStatut : null);
+        return (
+          recoursDecisionNotifiedAt ||
+          (!isRapoRoute && index === currentIndex ? dateStatut : null)
+        );
       case "demande_en_cours_rapo":
         return index === currentIndex ? dateStatut : null;
       default:
@@ -748,6 +771,9 @@
       recoursNotifiedAt: null,
       recoursDecisionNotifiedAt: null,
       rapo: null,
+      rapoStatusType: null,
+      rapoStatusCode: null,
+      hasCurrentRapo: false,
       dossier: data.dossier,
       dossierDetails: null,
       notifications: [],
@@ -879,6 +905,20 @@
         apiInfos.rapo?.date_depot,
         null
       );
+
+      // Same rule as the current ANEF main.js: a current RAPO exists when
+      // `currentRapo.statut.type` is present. The value is already plain in
+      // the current bundle, so it is only normalized here.
+      const rapoStatusType = getRapoStatusType(apiInfos.rapo);
+      const rapoStatusCode = getRapoTrackingCode(rapoStatusType);
+      apiInfos.rapoStatusType = rapoStatusType;
+      apiInfos.rapoStatusCode = rapoStatusCode;
+      apiInfos.hasCurrentRapo = Boolean(rapoStatusType);
+      if (rapoStatusCode) {
+        apiInfos.statutCode = rapoStatusCode;
+        apiInfos.statutDescription = getStatusDescription(rapoStatusCode);
+        apiInfos.plainStatusLabel = apiInfos.statutDescription;
+      }
     }
 
     return apiInfos;
@@ -1312,6 +1352,14 @@ const STATUTS = {
       description: "La décision concernant votre dossier vous a été officiellement notifiée. Consultez le courrier pour connaître la nature de la décision et les voies de recours disponibles.",
       icon: "❌"
     },
+    "recours_envoye": {
+      phase: "Recours RAPO",
+      explication: "RAPO envoyé, en attente de prise en charge",
+      etape: 13,
+      rang: 1308,
+      description: "Votre recours administratif préalable obligatoire (RAPO) a été envoyé et attend sa prise en charge.",
+      icon: "⚖️"
+    },
     "demande_en_cours_rapo": {
       phase: "Recours RAPO",
       explication: "Recours administratif en cours",
@@ -1474,6 +1522,7 @@ const STATUTS = {
   const NEGATIVE_DECISION_STATUS_CODES = new Set([
     "decision_negative_en_delais_recours",
     "decision_notifiee",
+    "recours_envoye",
     "demande_en_cours_rapo",
     "controle_demande_notifiee",
     "irrecevabilite_manifeste",
@@ -1497,6 +1546,31 @@ const STATUTS = {
 
   function normalizeStatusCode(statusCode) {
     return String(statusCode || "").trim().toLowerCase();
+  }
+
+  // Current ANEF main.js exposes currentRapo.statut.type in clear. These are
+  // the RAPO states used by the current bundle; no private key is involved.
+  const RAPO_STATUS_TO_TRACKING_CODE = {
+    DRAFT: "recours_envoye",
+    RAPO_A_AFFECTER: "recours_envoye",
+    ANALYSE_RAPO_A_EFFECTUER: "demande_en_cours_rapo",
+    EN_ATTENTE_RETOUR_PLATEFORME: "demande_en_cours_rapo",
+    EN_ATTENTE_RETOUR_HIERARCHIQUE: "demande_en_cours_rapo",
+    DECISION_A_EDITER: "demande_en_cours_rapo",
+    EN_ATTENTE_SIGNATURE: "demande_en_cours_rapo",
+    EN_ATTENTE_PEC: "demande_en_cours_rapo",
+    FRANCISATION_A_TRAITER: "demande_en_cours_rapo",
+    FRANCISATION_EN_ATTENTE_DE_RETOUR_HIERARCHIQUE: "demande_en_cours_rapo",
+    RAPO_TRAITE: "controle_demande_notifiee",
+    RAPO_A_RETIRER: "controle_demande_notifiee",
+  };
+
+  function getRapoTrackingCode(statusType) {
+    const normalized = String(statusType || "").trim().toUpperCase();
+    return (
+      RAPO_STATUS_TO_TRACKING_CODE[normalized] ||
+      (normalized.includes("RAPO") ? "demande_en_cours_rapo" : null)
+    );
   }
 
   function isNegativeDecisionStatus(statusCode) {
@@ -1529,6 +1603,9 @@ const STATUTS = {
 
   function inferRecoursTrackingIndex(statusCode) {
     const code = normalizeStatusCode(statusCode);
+    if (code === "recours_envoye") {
+      return getStepIndexByKey("recours_envoye");
+    }
     if (isFinalRecoursStatus(code)) {
       return getStepIndexByKey("recours_decision_prise");
     }
@@ -1695,8 +1772,12 @@ const STATUTS = {
       endIndex: recoursEndIndex,
   };
 
-  function getMacroPhases(statusCode) {
-    const secondPhase = isNegativeDecisionStatus(statusCode)
+  function getMacroPhases(statusCode, apiInfos = null) {
+    const isRapoRoute =
+      apiInfos?.hasCurrentRapo ||
+      apiInfos?.rapoStatusType ||
+      getFriseType(apiInfos) === "DECISION_RAPO";
+    const secondPhase = isNegativeDecisionStatus(statusCode) || isRapoRoute
       ? RECOURS_MACRO_PHASE
       : {
           ...MINISTRY_MACRO_PHASE,
@@ -3123,7 +3204,17 @@ const STATUTS = {
       -1,
       apiInfos
     );
-    if (isCurrent && dateStatut && !explicitStepDate) {
+    const isRapoStep = [
+      "recours_envoye",
+      "recours_statut_courant",
+      "recours_decision_prise",
+    ].includes(stepKey);
+    if (
+      isCurrent &&
+      dateStatut &&
+      !explicitStepDate &&
+      !(apiInfos?.hasCurrentRapo && isRapoStep)
+    ) {
       const statusDateLabel = formatDate(dateStatut);
       const alreadyShown = details.some(
         (detail) =>
@@ -3268,7 +3359,7 @@ const STATUTS = {
       header.insertAdjacentElement("afterend", root);
     }
 
-    const macroPhases = getMacroPhases(apiInfos.statutCode);
+    const macroPhases = getMacroPhases(apiInfos.statutCode, apiInfos);
     const progressPct = getMacroProgressPct(currentIndex, macroPhases, apiInfos);
     const currentStep = TRACKING_STEPS[currentIndex];
     const currentStepTitle = currentStep ? formatTrackingStepTitle(currentStep, apiInfos) : "";
