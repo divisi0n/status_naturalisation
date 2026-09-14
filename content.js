@@ -73,7 +73,7 @@
       if (state !== "unknown") return state;
       await sleep(300);
     }
- 
+
     return getAuthState();
   }
 
@@ -127,7 +127,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.8.4";
+  const extensionVersion = "3.8.5";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   function formatAnefStatusFlags(status) {
@@ -419,8 +419,9 @@
   // currentRapo.statut.type. Do not reintroduce the legacy RSA key path.
   function getRapoStatusType(rapo) {
     const value = rapo?.statut?.type ?? rapo?.status?.type;
-    const raw = String(value || "").trim().toUpperCase();
-    return /^[A-Z][A-Z0-9_]*$/.test(raw) ? raw : null;
+    const raw = String(value || "").trim();
+    const primaryToken = raw.split("|")[0].trim().toUpperCase();
+    return /^[A-Z][A-Z0-9_]*$/.test(primaryToken) ? primaryToken : null;
   }
 
   function extractComplementDates(demandeComplements) {
@@ -721,7 +722,7 @@
     const plainStatusLabel = formatAnefStatusFlags(data.dossier.statut);
     // Detailed-status decryption is disabled; the current position comes
     // from the ANEF frise (`id_active`, `type_frise`, `has_step_scec`).
-    let dossierStatusCode = null;
+    let dossierStatusCode = getDossierRapoTrackingCode(data.dossier.statut);
     const hasActiveFriseStep = Number.isFinite(Number(friseData?.id_active));
     let dossierStatus;
     if (
@@ -1548,11 +1549,31 @@ const STATUTS = {
     return String(statusCode || "").trim().toLowerCase();
   }
 
+  function getDossierRapoTrackingCode(status) {
+    const value = status && typeof status === "object"
+      ? status.type ?? status.code ?? status.value
+      : status;
+    const tokens = new Set(String(value || "").split("|").map(
+      (token) => token.trim().toUpperCase()
+    ));
+    // Notification and processing markers identify the Recours route even
+    // when ANEF returns NO_FRISE. UI permissions alone do not identify it.
+    const hasNotification = tokens.has("LECTURE_NOTIFICATION_RAPO");
+    const hasProcessing = tokens.has("DEMANDE_EN_COURS_RAPO");
+    if (!hasNotification && !hasProcessing) return null;
+    if (hasNotification && tokens.has("DECISION_NOTIFIEE") &&
+        tokens.has("STATUT_DOSSIER_COMPLETED")) {
+      return "decision_notifiee";
+    }
+    return "demande_en_cours_rapo";
+  }
+
   // Current ANEF main.js exposes currentRapo.statut.type in clear. These are
   // the RAPO states used by the current bundle; no private key is involved.
   const RAPO_STATUS_TO_TRACKING_CODE = {
     DRAFT: "recours_envoye",
     RAPO_A_AFFECTER: "recours_envoye",
+    DEMANDE_EN_COURS_DE_TRAITEMENT: "demande_en_cours_rapo",
     ANALYSE_RAPO_A_EFFECTUER: "demande_en_cours_rapo",
     EN_ATTENTE_RETOUR_PLATEFORME: "demande_en_cours_rapo",
     EN_ATTENTE_RETOUR_HIERARCHIQUE: "demande_en_cours_rapo",
@@ -1675,6 +1696,20 @@ const STATUTS = {
   }
 
   function getLatestDatedRouteStepIndex(apiInfos, currentIndex) {
+    const routeStepKeys = new Set(Object.values(getFriseStepKeys(apiInfos)));
+    const interviewIndex = getStepIndexByKey("entretien_assimilation");
+    const interviewDate = parseAnchorDate(apiInfos?.assimilationDate);
+    // A scheduled interview is already the active waiting stage, even when
+    // its appointment date is later than date_statut on a lagging frise.
+    if (
+      routeStepKeys.has("entretien_assimilation") &&
+      currentIndex < interviewIndex &&
+      interviewDate &&
+      interviewDate >= parseAnchorDate(new Date())
+    ) {
+      currentIndex = interviewIndex;
+    }
+
     // With no detailed ANEF status, id_active can lag behind a dated event
     // such as the receipt of completeness. Never display that known event as
     // pending after an older frise point.
@@ -1684,7 +1719,6 @@ const STATUTS = {
     const statusDate = parseAnchorDate(apiInfos?.dateStatut);
     if (!statusDate) return currentIndex;
 
-    const routeStepKeys = new Set(Object.values(getFriseStepKeys(apiInfos)));
     return TRACKING_STEPS.reduce((latestIndex, step, index) => {
       if (!routeStepKeys.has(step.key) || index <= latestIndex) {
         return latestIndex;
