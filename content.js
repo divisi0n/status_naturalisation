@@ -127,7 +127,7 @@
   }
 
   // Extension version from manifest.json
-  const extensionVersion = "3.8.5";
+  const extensionVersion = "3.8.6";
   console.log(`Extension API Naturalisation - Version: ${extensionVersion}`);
 
   function formatAnefStatusFlags(status) {
@@ -363,19 +363,44 @@
   }
 
   function formatDurationBetween(startDate, endDate) {
-    if (!startDate || !endDate) return null;
-    const diffDays = Math.floor((endDate.getTime() - startDate.getTime()) / 86400000);
-    if (diffDays < 0) return null;
-    if (diffDays === 0) return null;
+    if (
+      !startDate ||
+      !endDate ||
+      !Number.isFinite(startDate.getTime()) ||
+      !Number.isFinite(endDate.getTime())
+    ) return null;
 
-    if (diffDays < 30) {
-      return `${diffDays} jrs`;
+    // Compare local calendar dates in UTC to ignore daylight-saving changes.
+    const start = new Date(Date.UTC(
+      startDate.getFullYear(), startDate.getMonth(), startDate.getDate()
+    ));
+    const end = new Date(Date.UTC(
+      endDate.getFullYear(), endDate.getMonth(), endDate.getDate()
+    ));
+    if (end <= start) return null;
+
+    let totalMonths =
+      (end.getUTCFullYear() - start.getUTCFullYear()) * 12 +
+      end.getUTCMonth() - start.getUTCMonth();
+    const getMonthAnniversary = (monthCount) => {
+      const anniversary = new Date(start);
+      anniversary.setUTCDate(1);
+      anniversary.setUTCMonth(start.getUTCMonth() + monthCount);
+      const monthEnd = new Date(anniversary);
+      monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1, 0);
+      // For example, the monthly anniversary of 31 January is 28/29 February.
+      anniversary.setUTCDate(Math.min(start.getUTCDate(), monthEnd.getUTCDate()));
+      return anniversary;
+    };
+
+    let anniversary = getMonthAnniversary(totalMonths);
+    if (anniversary > end) {
+      totalMonths -= 1;
+      anniversary = getMonthAnniversary(totalMonths);
     }
-
-    let months = Math.floor(diffDays / 30);
-    const days = diffDays % 30;
-    const years = Math.floor(months / 12);
-    months = months % 12;
+    const days = Math.round((end.getTime() - anniversary.getTime()) / 86400000);
+    const years = Math.floor(totalMonths / 12);
+    const months = totalMonths % 12;
 
     const parts = [];
     if (years > 0) {
@@ -642,6 +667,111 @@
     const fromDate = getStepKnownDate(fromStep.key, fromIndex, currentIndex, apiInfos);
     const toDate = getStepKnownDate(toStep.key, toIndex, currentIndex, apiInfos);
     return formatDurationBetween(fromDate, toDate);
+  }
+
+  function getReceiptDeadlineNotice(apiInfos, currentIndex, now = new Date()) {
+    if (!isReceiptChronologicallyValid(apiInfos)) return null;
+    const inferredIndex = inferTrackingIndex(apiInfos) ?? inferFriseTrackingIndex(apiInfos);
+    if (
+      TRACKING_STEPS[currentIndex]?.group !== "prefecture" ||
+      TRACKING_STEPS[inferredIndex]?.group !== "prefecture" ||
+      isNegativeDecisionStatus(apiInfos?.statutCode) ||
+      apiInfos?.hasCurrentRapo ||
+      apiInfos?.rapoStatusType ||
+      getFriseType(apiInfos) === "DECISION_RAPO"
+    ) return null;
+
+    const receiptDate = parseAnchorDate(apiInfos.recepisseCreated);
+    const today = parseAnchorDate(now);
+    if (!today || receiptDate > today) return null;
+
+    // Add 18 calendar months, retaining the day or the target month's last day.
+    const deadline = new Date(receiptDate);
+    deadline.setDate(1);
+    deadline.setMonth(deadline.getMonth() + 18);
+    const monthEnd = new Date(deadline);
+    monthEnd.setMonth(monthEnd.getMonth() + 1, 0);
+    deadline.setDate(Math.min(receiptDate.getDate(), monthEnd.getDate()));
+    const overdueDuration = formatDurationBetween(deadline, today);
+    if (!overdueDuration) return null;
+
+    return { deadline, overdueDuration };
+  }
+
+  function buildReceiptDeadlineNotice(notice) {
+    const card = document.createElement("aside");
+    card.className = "anf-receipt-deadline";
+    card.setAttribute("aria-label", `Délai de 18 mois dépassé depuis ${notice.overdueDuration}`);
+
+    const title = document.createElement("strong");
+    title.className = "anf-receipt-deadline-title";
+    title.textContent = "Délai de 18 mois dépassé";
+    const infoButton = document.createElement("button");
+    infoButton.type = "button";
+    infoButton.className = "anf-receipt-deadline-info-button";
+    infoButton.textContent = "i";
+    infoButton.setAttribute("aria-label", "Informations sur le délai de réponse");
+    infoButton.setAttribute("aria-haspopup", "dialog");
+    infoButton.setAttribute("aria-expanded", "false");
+    infoButton.setAttribute("popovertarget", "anf-receipt-deadline-info");
+    const duration = document.createElement("span");
+    duration.className = "anf-receipt-deadline-duration";
+    duration.textContent = `+${notice.overdueDuration}`;
+
+    const explanation = document.createElement("div");
+    explanation.id = "anf-receipt-deadline-info";
+    explanation.className = "anf-receipt-deadline-info";
+    explanation.setAttribute("popover", "auto");
+    explanation.setAttribute("role", "dialog");
+    explanation.setAttribute("aria-labelledby", "anf-receipt-deadline-info-title");
+    const popupHeading = document.createElement("div");
+    popupHeading.className = "anf-receipt-deadline-info-heading";
+    const popupTitle = document.createElement("strong");
+    popupTitle.id = "anf-receipt-deadline-info-title";
+    popupTitle.textContent = "Délai de 18 mois dépassé";
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "anf-receipt-deadline-info-close";
+    closeButton.textContent = "×";
+    closeButton.setAttribute("aria-label", "Fermer les informations sur le délai");
+    closeButton.setAttribute("popovertarget", explanation.id);
+    closeButton.setAttribute("popovertargetaction", "hide");
+    popupHeading.append(popupTitle, closeButton);
+    const summary = document.createElement("p");
+    summary.className = "anf-receipt-deadline-info-summary";
+    summary.textContent = `Dépassé depuis ${notice.overdueDuration}.\nÉchéance : ${formatDate(notice.deadline)}.`;
+    const rule = document.createElement("p");
+    rule.textContent = "L’article 21-25-1 du Code civil fixe un délai général de réponse de 18 mois à compter de la remise du dossier complet. Une prolongation de 3 mois est possible une seule fois, par décision motivée.";
+    const reducedPeriod = document.createElement("p");
+    reducedPeriod.textContent = "Ce délai est réduit à 12 mois si la résidence habituelle en France est d’au moins 10 ans à la remise du dossier complet.";
+    const calculation = document.createElement("p");
+    calculation.textContent = "Ce repère utilise la date du récépissé affichée par ANEF. Une éventuelle prolongation n’est pas prise en compte dans le calcul.";
+    const link = document.createElement("a");
+    link.textContent = "Lire l’article 21-25-1 sur Légifrance";
+    link.href = "https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006419662";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    explanation.append(popupHeading, summary, rule, reducedPeriod, calculation, link);
+    explanation.addEventListener("toggle", (event) => {
+      const isOpen = event.newState === "open";
+      infoButton.setAttribute("aria-expanded", String(isOpen));
+      if (!isOpen) return;
+      const buttonRect = infoButton.getBoundingClientRect();
+      const popupRect = explanation.getBoundingClientRect();
+      const margin = 12;
+      const left = Math.max(margin, Math.min(
+        buttonRect.right - popupRect.width,
+        window.innerWidth - popupRect.width - margin
+      ));
+      const below = buttonRect.bottom + 8;
+      const top = below + popupRect.height <= window.innerHeight - margin
+        ? below
+        : Math.max(margin, buttonRect.top - popupRect.height - 8);
+      explanation.style.left = `${left}px`;
+      explanation.style.top = `${top}px`;
+    });
+    card.append(title, duration, infoButton, explanation);
+    return card;
   }
 
   function getDurationFromNearestKnownPreviousStep(
@@ -2799,6 +2929,127 @@ const STATUTS = {
         font-weight: 700;
         line-height: 1.25;
       }
+      .anf-receipt-deadline {
+        display: inline-grid;
+        grid-template-columns: minmax(0, 1fr) 16px;
+        align-items: center;
+        align-self: center;
+        column-gap: 6px;
+        row-gap: 2px;
+        width: fit-content;
+        max-width: 100%;
+        margin-top: 4px;
+        padding: 5px 7px;
+        border: 1px solid #efd59c;
+        border-radius: 8px;
+        background: #fff9ed;
+        color: #755008;
+        font-size: 9.5px;
+        line-height: 1.3;
+        text-align: center;
+        overflow-wrap: normal;
+      }
+      .anf-receipt-deadline-title {
+        grid-column: 1;
+        grid-row: 1;
+        font-size: inherit;
+        font-weight: 600;
+      }
+      .anf-receipt-deadline-info-heading {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 7px;
+      }
+      .anf-receipt-deadline-info-button {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        flex: 0 0 16px;
+        width: 16px;
+        height: 16px;
+        padding: 0;
+        border: 1px solid #a67817;
+        border-radius: 50%;
+        background: #fff;
+        color: #755008;
+        font-family: Georgia, serif;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 14px;
+        cursor: pointer;
+      }
+      .anf-receipt-deadline-duration {
+        grid-column: 1;
+        grid-row: 2;
+        min-width: 0;
+        color: #5f3b00;
+        font-size: inherit;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .anf-receipt-deadline-info[popover] {
+        position: fixed;
+        inset: auto;
+        top: 12px;
+        left: 12px;
+        width: min(340px, calc(100vw - 24px));
+        max-height: calc(100dvh - 24px);
+        margin: 0;
+        padding: 16px;
+        overflow: auto;
+        border: 1px solid #ddddeb;
+        border-radius: 12px;
+        background: #fff;
+        color: #28283f;
+        box-shadow: 0 12px 36px rgba(24, 24, 65, 0.2);
+        font-size: 12px;
+        line-height: 1.55;
+        text-align: left;
+      }
+      .anf-receipt-deadline-info-heading {
+        align-items: center;
+        color: var(--anf-bleu);
+        font-size: 13px;
+        line-height: 1.35;
+      }
+      .anf-receipt-deadline-info-close {
+        flex: 0 0 26px;
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        border: 0;
+        border-radius: 5px;
+        background: #f3f3fa;
+        color: #5c5c78;
+        font-size: 20px;
+        line-height: 24px;
+        cursor: pointer;
+      }
+      .anf-receipt-deadline-info-button:focus-visible,
+      .anf-receipt-deadline-info-close:focus-visible,
+      .anf-receipt-deadline-info a:focus-visible {
+        outline: 2px solid var(--anf-bleu);
+        outline-offset: 3px;
+        border-radius: 2px;
+      }
+      .anf-receipt-deadline-info p {
+        margin: 10px 0;
+        font-size: inherit;
+        line-height: inherit;
+      }
+      .anf-receipt-deadline-info-summary {
+        white-space: pre-line;
+        padding: 8px 10px;
+        border-radius: 6px;
+        background: #fff9ed;
+        color: #755008;
+        font-weight: 600;
+      }
+      .anf-receipt-deadline-info a {
+        color: var(--anf-bleu);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
       .anf-track-step-detail.is-status-card {
         padding: 5px 6px;
         border-radius: 6px;
@@ -2974,6 +3225,9 @@ const STATUTS = {
         .anf-track-step-detail {
           font-size: 10px;
           text-align: left;
+        }
+        .anf-receipt-deadline {
+          align-self: flex-start;
         }
         .anf-track-masked-row {
           align-self: flex-start;
@@ -3358,6 +3612,10 @@ const STATUTS = {
       const el = createStepDetail(detail.text, detail.variant);
       wrapper.appendChild(el);
     });
+    if (stepKey === "recepisse_completude") {
+      const notice = getReceiptDeadlineNotice(apiInfos, currentIndex);
+      if (notice) wrapper.appendChild(buildReceiptDeadlineNotice(notice));
+    }
     item.appendChild(wrapper);
   }
 
